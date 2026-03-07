@@ -553,8 +553,8 @@ def ss_init() -> None:
     st.session_state.setdefault("w_acq_date", date.today())
     st.session_state.setdefault("w_acq_start_play", "")
     st.session_state.setdefault("w_acq_end_play", "")
-    st.session_state.setdefault("w_acq_start_blood", 0)
-    st.session_state.setdefault("w_acq_end_blood", 0)
+    st.session_state.setdefault("w_acq_start_blood", None)
+    st.session_state.setdefault("w_acq_end_blood", None)
     st.session_state.setdefault("w_acq_clues", DEFAULT_CLUES_PER_TRIP)
 
     st.session_state.setdefault("w_comp_date", date.today())
@@ -693,8 +693,8 @@ with st.sidebar:
 
     st.text_input("Start playtime (HH.mm)", key="w_acq_start_play", placeholder="e.g. 1.25")
     st.text_input("End playtime (HH.mm)", key="w_acq_end_play", placeholder="e.g. 2.10")
-    st.number_input("Start bloods", min_value=0, step=1, key="w_acq_start_blood")
-    st.number_input("End bloods", min_value=0, step=1, key="w_acq_end_blood")
+    st.number_input("Start bloods", min_value=0, step=1, value=None, key="w_acq_start_blood")
+    st.number_input("End bloods", min_value=0, step=1, value=None, key="w_acq_end_blood")
     st.number_input("Clues obtained", min_value=1, step=1, key="w_acq_clues")
     st.caption("Duration uses playtime if both are entered; otherwise uses system Start/End.")
 
@@ -703,8 +703,14 @@ with st.sidebar:
         log_date = st.session_state["w_acq_date"]
         start_play = str(st.session_state["w_acq_start_play"]).strip()
         end_play = str(st.session_state["w_acq_end_play"]).strip()
-        start_blood = int(st.session_state["w_acq_start_blood"])
-        end_blood = int(st.session_state["w_acq_end_blood"])
+        start_blood_raw = st.session_state["w_acq_start_blood"]
+        end_blood_raw = st.session_state["w_acq_end_blood"]
+
+        if start_blood_raw is None or end_blood_raw is None:
+            raise ValueError("Enter both Start bloods and End bloods.")
+
+        start_blood = int(start_blood_raw)
+        end_blood = int(end_blood_raw)
         clues = int(st.session_state["w_acq_clues"])
 
         dur_play = None
@@ -766,7 +772,11 @@ with st.sidebar:
         }
         append_row(ACQ_CSV, ACQ_COLS, row)
 
-        pending = {"w_acq_start_blood": end_blood, "w_acq_end_blood": 0, "w_acq_end_play": ""}
+        pending = {
+            "w_acq_start_blood": end_blood, 
+            "w_acq_end_blood": None, 
+            "w_acq_end_play": ""
+        }
         if end_play:
             pending["w_acq_start_play"] = end_play
         if ee:
