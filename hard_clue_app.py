@@ -772,18 +772,15 @@ with st.sidebar:
         }
         append_row(ACQ_CSV, ACQ_COLS, row)
 
-        pending = {
-            "w_acq_start_blood": end_blood, 
-            "w_acq_end_blood": None, 
-            "w_acq_end_play": ""
-        }
         if end_play:
-            pending["w_acq_start_play"] = end_play
+            st.session_state["w_acq_start_play"] = end_play
+        st.session_state["w_acq_end_play"] = ""
+        st.session_state["w_acq_start_blood"] = end_blood
+        st.session_state["w_acq_end_blood"] = None
         if ee:
             st.session_state["acq_start_system"] = ee
         st.session_state["acq_end_system"] = None
-        st.session_state["pending"] = pending
-        st.session_state["pending_apply"] = True
+        st.rerun()
 
     if st.button("Save Acquisition Trip", type="primary", use_container_width=True):
         try:
