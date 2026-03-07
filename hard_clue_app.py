@@ -8,6 +8,13 @@ import plotly.graph_objects as go
 import streamlit as st
 from plotly.subplots import make_subplots
 
+from google_sheets_backend import (
+    ACQ_SHEET,
+    COMP_SHEET,
+    read_sheet_df,
+    append_row,
+)
+
 # ----------------------------
 # Config
 # ----------------------------
@@ -27,6 +34,41 @@ DEATHS_PER_BLOOD = 2
 AVG_REWARD_ROLLS_PER_CASKET = 5
 EXPECTED_ALCH_GP_PER_CASKET = 54244.076180305085
 
+ACQ_HEADERS = [
+    "trip_id",
+    "log_date",
+    "start_playtime",
+    "end_playtime",
+    "duration_seconds_playtime",
+    "start_system",
+    "end_system",
+    "duration_seconds_system",
+    "duration_seconds",
+    "start_bloods",
+    "end_bloods",
+    "bloods_used",
+    "deaths_used",
+    "clues",
+    "gp_cost",
+    "gp_per_clue",
+    "clues_per_hour",
+    "notes",
+]
+
+COMP_HEADERS = [
+    "session_id",
+    "log_date",
+    "start_playtime",
+    "end_playtime",
+    "duration_seconds_playtime",
+    "start_system",
+    "end_system",
+    "duration_seconds_system",
+    "duration_seconds",
+    "clues_completed",
+    "clues_per_hour",
+    "notes",
+]
 
 # ----------------------------
 # UI tightening
