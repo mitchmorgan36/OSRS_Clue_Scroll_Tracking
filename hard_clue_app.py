@@ -413,7 +413,6 @@ def build_end_to_end_chart(acq_df: pd.DataFrame, comp_df: pd.DataFrame) -> go.Fi
     if acq.empty or comp.empty:
         return fig
 
-    # Create explicit date columns before grouping
     acq["date"] = acq["log_date"].dt.date
     comp["date"] = comp["log_date"].dt.date
 
@@ -441,7 +440,6 @@ def build_end_to_end_chart(acq_df: pd.DataFrame, comp_df: pd.DataFrame) -> go.Fi
         .fillna(0)
     )
 
-    # Convert to real datetimes so Plotly formats the axis correctly
     d["date"] = pd.to_datetime(d["date"])
 
     d["cum_acq_seconds"] = d["acq_seconds"].cumsum()
@@ -460,25 +458,28 @@ def build_end_to_end_chart(acq_df: pd.DataFrame, comp_df: pd.DataFrame) -> go.Fi
         d["cum_acq_sec_per_casket"] + d["cum_comp_sec_per_casket"]
     )
 
+    # Use date strings so the x-axis shows each date only once
+    d["date_label"] = d["date"].dt.strftime("%Y-%m-%d")
+
     main_color = "#10b981"
     avg_color = "#86efac"
 
     fig.add_trace(
         go.Scatter(
-            x=d["date"],
+            x=d["date_label"],
             y=d["end_to_end_cph"],
             mode="lines+markers",
             name="End-to-end caskets/hr",
             line=dict(color=main_color, width=3),
             marker=dict(color=main_color, size=7),
-            hovertemplate="%{x|%Y-%m-%d}<br>End-to-end caskets/hr: %{y:.2f}<extra></extra>",
+            hovertemplate="%{x}<br>End-to-end caskets/hr: %{y:.2f}<extra></extra>",
         )
     )
 
     avg_val = float(d["end_to_end_cph"].mean())
     fig.add_trace(
         go.Scatter(
-            x=d["date"],
+            x=d["date_label"],
             y=[avg_val] * len(d),
             mode="lines",
             name="Average",
@@ -491,9 +492,9 @@ def build_end_to_end_chart(acq_df: pd.DataFrame, comp_df: pd.DataFrame) -> go.Fi
         margin=dict(l=40, r=40, t=70, b=40),
         xaxis=dict(
             title="Date",
-            type="date",
-            tickformat="%Y-%m-%d",
-            hoverformat="%Y-%m-%d",
+            type="category",
+            categoryorder="array",
+            categoryarray=d["date_label"].tolist(),
         ),
     )
 
