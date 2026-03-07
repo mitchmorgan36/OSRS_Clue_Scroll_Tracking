@@ -389,15 +389,16 @@ def build_end_to_end_chart(acq_df: pd.DataFrame, comp_df: pd.DataFrame) -> go.Fi
 
     fig = go.Figure()
 
-    if acq.empty or comp.empty:
-        fig.update_layout(
-            **make_line_layout(
-                "End-to-end caskets per hour",
-                "Date",
-                "Caskets per hour",
-                height=360,
-            )
+    fig.update_layout(
+        **make_line_layout(
+            "End-to-end caskets per hour",
+            "Date",
+            "Caskets per hour",
+            height=380,
         )
+    )
+
+    if acq.empty or comp.empty:
         return fig
 
     acq["log_date"] = pd.to_datetime(acq["log_date"], errors="coerce")
@@ -409,19 +410,36 @@ def build_end_to_end_chart(acq_df: pd.DataFrame, comp_df: pd.DataFrame) -> go.Fi
     acq = acq[acq["clues"] > 0].copy()
     comp = comp[comp["clues_completed"] > 0].copy()
 
+    if acq.empty or comp.empty:
+        return fig
+
+    # Create explicit date columns before grouping
+    acq["date"] = acq["log_date"].dt.date
+    comp["date"] = comp["log_date"].dt.date
+
     acq_daily = (
-        acq.groupby(acq["log_date"].dt.date, as_index=False)
-        .agg(acq_seconds=("duration_seconds", "sum"), acq_caskets=("clues", "sum"))
-        .rename(columns={"log_date": "date"})
+        acq.groupby("date", as_index=False)
+        .agg(
+            acq_seconds=("duration_seconds", "sum"),
+            acq_caskets=("clues", "sum"),
+        )
+        .sort_values("date")
     )
 
     comp_daily = (
-        comp.groupby(comp["log_date"].dt.date, as_index=False)
-        .agg(comp_seconds=("duration_seconds", "sum"), comp_caskets=("clues_completed", "sum"))
-        .rename(columns={"log_date": "date"})
+        comp.groupby("date", as_index=False)
+        .agg(
+            comp_seconds=("duration_seconds", "sum"),
+            comp_caskets=("clues_completed", "sum"),
+        )
+        .sort_values("date")
     )
 
-    d = pd.merge(acq_daily, comp_daily, on="date", how="outer").sort_values("date").fillna(0)
+    d = (
+        pd.merge(acq_daily, comp_daily, on="date", how="outer")
+        .sort_values("date")
+        .fillna(0)
+    )
 
     d["cum_acq_seconds"] = d["acq_seconds"].cumsum()
     d["cum_acq_caskets"] = d["acq_caskets"].cumsum()
@@ -431,22 +449,16 @@ def build_end_to_end_chart(acq_df: pd.DataFrame, comp_df: pd.DataFrame) -> go.Fi
     d = d[(d["cum_acq_caskets"] > 0) & (d["cum_comp_caskets"] > 0)].copy()
 
     if d.empty:
-        fig.update_layout(
-            **make_line_layout(
-                "End-to-end caskets per hour",
-                "Date",
-                "Caskets per hour",
-                height=360,
-            )
-        )
         return fig
 
     d["cum_acq_sec_per_casket"] = d["cum_acq_seconds"] / d["cum_acq_caskets"]
     d["cum_comp_sec_per_casket"] = d["cum_comp_seconds"] / d["cum_comp_caskets"]
-    d["end_to_end_cph"] = 3600.0 / (d["cum_acq_sec_per_casket"] + d["cum_comp_sec_per_casket"])
+    d["end_to_end_cph"] = 3600.0 / (
+        d["cum_acq_sec_per_casket"] + d["cum_comp_sec_per_casket"]
+    )
 
-    main_color = "#10b981"      # emerald
-    avg_color = "#86efac"       # light green
+    main_color = "#10b981"
+    avg_color = "#86efac"
 
     fig.add_trace(
         go.Scatter(
@@ -469,15 +481,6 @@ def build_end_to_end_chart(acq_df: pd.DataFrame, comp_df: pd.DataFrame) -> go.Fi
             name="Average",
             line=dict(color=avg_color, width=2.5, dash="dash"),
             hovertemplate="Average: %{y:.2f}<extra></extra>",
-        )
-    )
-
-    fig.update_layout(
-        **make_line_layout(
-            "End-to-end caskets per hour",
-            "Date",
-            "Caskets per hour",
-            height=380,
         )
     )
 
