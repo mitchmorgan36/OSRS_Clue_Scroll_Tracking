@@ -441,6 +441,9 @@ def build_end_to_end_chart(acq_df: pd.DataFrame, comp_df: pd.DataFrame) -> go.Fi
         .fillna(0)
     )
 
+    # Convert to real datetimes so Plotly formats the axis correctly
+    d["date"] = pd.to_datetime(d["date"])
+
     d["cum_acq_seconds"] = d["acq_seconds"].cumsum()
     d["cum_acq_caskets"] = d["acq_caskets"].cumsum()
     d["cum_comp_seconds"] = d["comp_seconds"].cumsum()
@@ -468,7 +471,7 @@ def build_end_to_end_chart(acq_df: pd.DataFrame, comp_df: pd.DataFrame) -> go.Fi
             name="End-to-end caskets/hr",
             line=dict(color=main_color, width=3),
             marker=dict(color=main_color, size=7),
-            hovertemplate="%{x}<br>End-to-end caskets/hr: %{y:.2f}<extra></extra>",
+            hovertemplate="%{x|%Y-%m-%d}<br>End-to-end caskets/hr: %{y:.2f}<extra></extra>",
         )
     )
 
@@ -486,7 +489,12 @@ def build_end_to_end_chart(acq_df: pd.DataFrame, comp_df: pd.DataFrame) -> go.Fi
 
     fig.update_layout(
         margin=dict(l=40, r=40, t=70, b=40),
-        xaxis=dict(title="Date"),
+        xaxis=dict(
+            title="Date",
+            type="date",
+            tickformat="%Y-%m-%d",
+            hoverformat="%Y-%m-%d",
+        ),
     )
 
     return fig
