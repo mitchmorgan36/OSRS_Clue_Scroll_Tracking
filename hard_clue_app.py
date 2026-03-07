@@ -772,11 +772,15 @@ with st.sidebar:
         }
         append_row(ACQ_CSV, ACQ_COLS, row)
 
-        if end_play:
-            st.session_state["w_acq_start_play"] = end_play
-        st.session_state["w_acq_end_play"] = ""
-        st.session_state["w_acq_start_blood"] = end_blood
-        st.session_state["w_acq_end_blood"] = None
+        pending = {
+            "w_acq_start_play": end_play if end_play else st.session_state.get("w_acq_start_play", ""),
+            "w_acq_end_play": "",
+            "w_acq_start_blood": end_blood,
+            "w_acq_end_blood": None,
+        }
+        st.session_state["pending"] = pending
+        st.session_state["pending_apply"] = True
+
         if ee:
             st.session_state["acq_start_system"] = ee
         st.session_state["acq_end_system"] = None
