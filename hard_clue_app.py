@@ -523,6 +523,7 @@ ACQ_COLS = [
     "gp_per_clue",
     "clues_per_hour",
     "gp_per_hour",
+    "notes",
 ]
 
 COMP_COLS = [
@@ -556,6 +557,7 @@ def ss_init() -> None:
     st.session_state.setdefault("w_acq_start_blood", None)
     st.session_state.setdefault("w_acq_end_blood", None)
     st.session_state.setdefault("w_acq_clues", DEFAULT_CLUES_PER_TRIP)
+    st.session_state.setdefault("w_acq_notes", "")
 
     st.session_state.setdefault("w_comp_date", date.today())
     st.session_state.setdefault("w_comp_start_play", "")
@@ -696,6 +698,7 @@ with st.sidebar:
     st.number_input("Start bloods", min_value=0, step=1, value=None, key="w_acq_start_blood")
     st.number_input("End bloods", min_value=0, step=1, value=None, key="w_acq_end_blood")
     st.number_input("Clues obtained", min_value=1, step=1, key="w_acq_clues")
+    st.text_area("Notes", key="w_acq_notes", placeholder="Optional notes for this acquisition trip", height=90)
     st.caption("Duration uses playtime if both are entered; otherwise uses system Start/End.")
 
     def save_acq():
@@ -712,6 +715,7 @@ with st.sidebar:
         start_blood = int(start_blood_raw)
         end_blood = int(end_blood_raw)
         clues = int(st.session_state["w_acq_clues"])
+        notes = str(st.session_state.get("w_acq_notes", "")).strip()
 
         dur_play = None
         if start_play and end_play:
@@ -769,6 +773,7 @@ with st.sidebar:
             "gp_per_clue": gp_per_clue,
             "clues_per_hour": clues_per_hour,
             "gp_per_hour": gp_per_hour,
+            "notes": notes,
         }
         append_row(ACQ_CSV, ACQ_COLS, row)
 
@@ -777,6 +782,7 @@ with st.sidebar:
             "w_acq_end_play": "",
             "w_acq_start_blood": end_blood,
             "w_acq_end_blood": None,
+            "w_acq_notes": "",
         }
         st.session_state["pending"] = pending
         st.session_state["pending_apply"] = True
@@ -946,10 +952,12 @@ with tab_acq:
         disp["gp_cost"] = disp["gp_cost"].round(0)
         disp["gp_per_clue"] = disp["gp_per_clue"].round(1)
         disp["clues_per_hour"] = disp["clues_per_hour"].round(2)
+        if "notes" not in disp.columns:
+            disp["notes"] = ""
 
         st.subheader("Trip Log")
         st.dataframe(
-            disp[["trip_id", "log_date", "duration", "clues", "bloods_used", "deaths_used", "gp_cost", "gp_per_clue", "clues_per_hour"]]
+            disp[["trip_id", "log_date", "duration", "clues", "bloods_used", "deaths_used", "gp_cost", "gp_per_clue", "clues_per_hour", "notes"]]
             .sort_values("trip_id", ascending=False),
             use_container_width=True,
             height=350,
