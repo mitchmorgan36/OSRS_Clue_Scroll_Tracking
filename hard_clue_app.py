@@ -375,7 +375,7 @@ def build_acq_scatter(df: pd.DataFrame) -> go.Figure:
 
 
 
-ddef build_end_to_end_chart(acq_df: pd.DataFrame, comp_df: pd.DataFrame) -> go.Figure:
+def build_end_to_end_chart(acq_df: pd.DataFrame, comp_df: pd.DataFrame) -> go.Figure:
     acq = (
         coerce_numeric(acq_df, ["duration_seconds", "clues"])
         .dropna(subset=["duration_seconds", "clues"])
