@@ -258,63 +258,99 @@ def build_completion_histogram(df: pd.DataFrame) -> go.Figure:
 
 
 def build_acq_combined_chart(df: pd.DataFrame) -> go.Figure:
-    d = coerce_numeric(df, ["trip_id", "duration_seconds", "clues_per_hour"]).dropna(subset=["trip_id", "duration_seconds", "clues_per_hour"]).sort_values("trip_id").copy()
+    d = (
+        coerce_numeric(df, ["trip_id", "duration_seconds", "clues_per_hour"])
+        .dropna(subset=["trip_id", "duration_seconds", "clues_per_hour"])
+        .sort_values("trip_id")
+        .copy()
+    )
+
     d["duration_min"] = d["duration_seconds"] / 60.0
-
-    raw_default = True
-    avg_default = True
-    ma5_default = len(d) >= 5
-    ma10_default = len(d) >= 10
-
-    c1, c2, c3, c4 = st.columns(4)
-    with c1:
-        show_raw = st.checkbox("Show raw", value=raw_default, key="acq_chart_raw")
-    with c2:
-        show_avg = st.checkbox("Show overall average", value=avg_default, key="acq_chart_avg")
-    with c3:
-        show_ma5 = st.checkbox("Show 5-trip MA", value=ma5_default, key="acq_chart_ma5")
-    with c4:
-        show_ma10 = st.checkbox("Show 10-trip MA", value=ma10_default, key="acq_chart_ma10")
 
     fig = make_subplots(specs=[[{"secondary_y": True}]])
 
-    if show_raw:
+    duration_color = "#2563eb"      # dark blue
+    duration_avg_color = "#93c5fd"  # light blue
+    cph_color = "#f59e0b"           # dark amber
+    cph_avg_color = "#fcd34d"       # light amber
+
+    fig.add_trace(
+        go.Scatter(
+            x=d["trip_id"],
+            y=d["duration_min"],
+            mode="lines+markers",
+            name="Duration",
+            line=dict(color=duration_color, width=3),
+            marker=dict(color=duration_color, size=7),
+            hovertemplate="Trip %{x}<br>Duration: %{y:.2f} min<extra></extra>",
+        ),
+        secondary_y=False,
+    )
+
+    fig.add_trace(
+        go.Scatter(
+            x=d["trip_id"],
+            y=d["clues_per_hour"],
+            mode="lines+markers",
+            name="Clues per hour",
+            line=dict(color=cph_color, width=3),
+            marker=dict(color=cph_color, size=7),
+            hovertemplate="Trip %{x}<br>Clues/hr: %{y:.2f}<extra></extra>",
+        ),
+        secondary_y=True,
+    )
+
+    if not d.empty:
+        duration_avg = float(d["duration_min"].mean())
+        cph_avg = float(d["clues_per_hour"].mean())
+
         fig.add_trace(
-            go.Scatter(x=d["trip_id"], y=d["duration_min"], mode="lines+markers", name="Duration"),
+            go.Scatter(
+                x=d["trip_id"],
+                y=[duration_avg] * len(d),
+                mode="lines",
+                name="Duration average",
+                line=dict(color=duration_avg_color, width=2.5, dash="dash"),
+                hovertemplate="Duration avg: %{y:.2f} min<extra></extra>",
+            ),
             secondary_y=False,
         )
+
         fig.add_trace(
-            go.Scatter(x=d["trip_id"], y=d["clues_per_hour"], mode="lines+markers", name="Clues/hr"),
+            go.Scatter(
+                x=d["trip_id"],
+                y=[cph_avg] * len(d),
+                mode="lines",
+                name="Clues per hour average",
+                line=dict(color=cph_avg_color, width=2.5, dash="dash"),
+                hovertemplate="Clues/hr avg: %{y:.2f}<extra></extra>",
+            ),
             secondary_y=True,
         )
 
-    if show_avg and not d.empty:
-        fig.add_hline(y=d["duration_min"].mean(), line_dash="dash", annotation_text="Duration avg", secondary_y=False)
-        fig.add_hline(y=d["clues_per_hour"].mean(), line_dash="dash", annotation_text="Clues/hr avg", secondary_y=True)
+    fig.update_layout(
+        **make_line_layout(
+            "Duration and clues per hour by trip",
+            "Trip #",
+            "Duration (minutes)",
+            "Clues per hour",
+            height=440,
+        )
+    )
 
-    if show_ma5 and not d.empty:
-        fig.add_trace(
-            go.Scatter(x=d["trip_id"], y=rolling_mean(d["duration_min"], 5), mode="lines", name="Duration MA5"),
-            secondary_y=False,
-        )
-        fig.add_trace(
-            go.Scatter(x=d["trip_id"], y=rolling_mean(d["clues_per_hour"], 5), mode="lines", name="Clues/hr MA5"),
-            secondary_y=True,
-        )
+    fig.update_layout(
+        margin=dict(l=40, r=40, t=95, b=40),
+        title=dict(y=0.97),
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.10,
+            xanchor="left",
+            x=0,
+        ),
+    )
 
-    if show_ma10 and not d.empty:
-        fig.add_trace(
-            go.Scatter(x=d["trip_id"], y=rolling_mean(d["duration_min"], 10), mode="lines", name="Duration MA10"),
-            secondary_y=False,
-        )
-        fig.add_trace(
-            go.Scatter(x=d["trip_id"], y=rolling_mean(d["clues_per_hour"], 10), mode="lines", name="Clues/hr MA10"),
-            secondary_y=True,
-        )
-
-    fig.update_layout(**make_line_layout("Duration and clues per hour by trip", "Trip #", "Duration (minutes)", "Clues per hour", height=420))
     return fig
-
 
 
 def build_completion_cph_chart(df: pd.DataFrame) -> go.Figure:
@@ -339,17 +375,117 @@ def build_acq_scatter(df: pd.DataFrame) -> go.Figure:
 
 
 
-def build_end_to_end_chart(acq_df: pd.DataFrame, comp_avg_seconds_per_casket: float) -> go.Figure:
-    d = coerce_numeric(acq_df, ["trip_id", "duration_seconds", "clues"]).dropna(subset=["trip_id", "duration_seconds", "clues"]).sort_values("trip_id").copy()
-    d = d[d["clues"] > 0].copy()
-    d["acq_seconds_per_casket"] = d["duration_seconds"] / d["clues"]
-    d["end_to_end_cph"] = 3600.0 / (d["acq_seconds_per_casket"] + comp_avg_seconds_per_casket)
+ddef build_end_to_end_chart(acq_df: pd.DataFrame, comp_df: pd.DataFrame) -> go.Figure:
+    acq = (
+        coerce_numeric(acq_df, ["duration_seconds", "clues"])
+        .dropna(subset=["duration_seconds", "clues"])
+        .copy()
+    )
+    comp = (
+        coerce_numeric(comp_df, ["duration_seconds", "clues_completed"])
+        .dropna(subset=["duration_seconds", "clues_completed"])
+        .copy()
+    )
 
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=d["trip_id"], y=d["end_to_end_cph"], mode="lines+markers", name="End-to-end caskets/hr"))
-    if not d.empty:
-        fig.add_hline(y=d["end_to_end_cph"].mean(), line_dash="dash", annotation_text="Average")
-    fig.update_layout(**make_line_layout("End-to-end caskets per hour", "Trip #", "Caskets per hour", height=360))
+
+    if acq.empty or comp.empty:
+        fig.update_layout(
+            **make_line_layout(
+                "End-to-end caskets per hour",
+                "Date",
+                "Caskets per hour",
+                height=360,
+            )
+        )
+        return fig
+
+    acq["log_date"] = pd.to_datetime(acq["log_date"], errors="coerce")
+    comp["log_date"] = pd.to_datetime(comp["log_date"], errors="coerce")
+
+    acq = acq.dropna(subset=["log_date"])
+    comp = comp.dropna(subset=["log_date"])
+
+    acq = acq[acq["clues"] > 0].copy()
+    comp = comp[comp["clues_completed"] > 0].copy()
+
+    acq_daily = (
+        acq.groupby(acq["log_date"].dt.date, as_index=False)
+        .agg(acq_seconds=("duration_seconds", "sum"), acq_caskets=("clues", "sum"))
+        .rename(columns={"log_date": "date"})
+    )
+
+    comp_daily = (
+        comp.groupby(comp["log_date"].dt.date, as_index=False)
+        .agg(comp_seconds=("duration_seconds", "sum"), comp_caskets=("clues_completed", "sum"))
+        .rename(columns={"log_date": "date"})
+    )
+
+    d = pd.merge(acq_daily, comp_daily, on="date", how="outer").sort_values("date").fillna(0)
+
+    d["cum_acq_seconds"] = d["acq_seconds"].cumsum()
+    d["cum_acq_caskets"] = d["acq_caskets"].cumsum()
+    d["cum_comp_seconds"] = d["comp_seconds"].cumsum()
+    d["cum_comp_caskets"] = d["comp_caskets"].cumsum()
+
+    d = d[(d["cum_acq_caskets"] > 0) & (d["cum_comp_caskets"] > 0)].copy()
+
+    if d.empty:
+        fig.update_layout(
+            **make_line_layout(
+                "End-to-end caskets per hour",
+                "Date",
+                "Caskets per hour",
+                height=360,
+            )
+        )
+        return fig
+
+    d["cum_acq_sec_per_casket"] = d["cum_acq_seconds"] / d["cum_acq_caskets"]
+    d["cum_comp_sec_per_casket"] = d["cum_comp_seconds"] / d["cum_comp_caskets"]
+    d["end_to_end_cph"] = 3600.0 / (d["cum_acq_sec_per_casket"] + d["cum_comp_sec_per_casket"])
+
+    main_color = "#10b981"      # emerald
+    avg_color = "#86efac"       # light green
+
+    fig.add_trace(
+        go.Scatter(
+            x=d["date"],
+            y=d["end_to_end_cph"],
+            mode="lines+markers",
+            name="End-to-end caskets/hr",
+            line=dict(color=main_color, width=3),
+            marker=dict(color=main_color, size=7),
+            hovertemplate="%{x}<br>End-to-end caskets/hr: %{y:.2f}<extra></extra>",
+        )
+    )
+
+    avg_val = float(d["end_to_end_cph"].mean())
+    fig.add_trace(
+        go.Scatter(
+            x=d["date"],
+            y=[avg_val] * len(d),
+            mode="lines",
+            name="Average",
+            line=dict(color=avg_color, width=2.5, dash="dash"),
+            hovertemplate="Average: %{y:.2f}<extra></extra>",
+        )
+    )
+
+    fig.update_layout(
+        **make_line_layout(
+            "End-to-end caskets per hour",
+            "Date",
+            "Caskets per hour",
+            height=380,
+        )
+    )
+
+    fig.update_layout(
+        margin=dict(l=40, r=40, t=70, b=40),
+        xaxis=dict(title="Date"),
+    )
+
     return fig
 
 
@@ -874,8 +1010,8 @@ with tab_combo:
         e.metric("Time remaining (total)", fmt_hours_minutes(remaining_seconds_total))
 
         st.divider()
-        st.plotly_chart(build_end_to_end_chart(acq_df, comp_sum["avg_time_casket_s"]), use_container_width=True)
+        st.plotly_chart(build_end_to_end_chart(acq_df, comp_df), use_container_width=True)
         st.caption(
-            "This combines each logged acquisition trip's time per casket with your observed average completion time per casket. "
-            "Progress-to-goal uses acquisition logged clues."
+            "This chart uses cumulative logged acquisition time per casket and cumulative logged completion time per casket, "
+            "grouped by date, to show how your observed end-to-end caskets per hour changes over time."
         )
