@@ -2,6 +2,7 @@ import os
 import math
 from datetime import date, datetime
 from typing import Dict, Any
+from uuid import uuid4
 
 from zoneinfo import ZoneInfo
 
@@ -155,7 +156,7 @@ def now_local() -> datetime:
 
 
 @st.cache_data(show_spinner=False)
-def load_df(path: str, columns: tuple[str, ...]) -> pd.DataFrame:
+def load_df(path: str, columns: tuple[str, ...], session_cache_key: str) -> pd.DataFrame:
     if path == ACQ_CSV:
         df = read_sheet_df(ACQ_SHEET, list(columns))
     elif path == COMP_CSV:
@@ -179,6 +180,12 @@ def clear_loaded_data_cache() -> None:
     load_df.clear()
 
 
+def get_session_cache_key() -> str:
+    if "_sheet_data_session_key" not in st.session_state:
+        st.session_state["_sheet_data_session_key"] = str(uuid4())
+    return st.session_state["_sheet_data_session_key"]
+
+
 
 def append_row(path: str, columns: tuple[str, ...], row: Dict[str, Any]) -> None:
     if path == ACQ_CSV:
@@ -189,7 +196,7 @@ def append_row(path: str, columns: tuple[str, ...], row: Dict[str, Any]) -> None
         return
 
     ensure_data_dir()
-    df = load_df(path, columns)
+    df = load_df(path, columns, get_session_cache_key())
     df = pd.concat([df, pd.DataFrame([row])], ignore_index=True)
     df.to_csv(path, index=False)
 
@@ -683,8 +690,10 @@ def summarize_comp(df: pd.DataFrame) -> Dict[str, Any]:
 # ----------------------------
 # Load data
 # ----------------------------
-acq_df = load_df(ACQ_CSV, ACQ_COLS)
-comp_df = load_df(COMP_CSV, COMP_COLS)
+SESSION_CACHE_KEY = get_session_cache_key()
+
+acq_df = load_df(ACQ_CSV, ACQ_COLS, SESSION_CACHE_KEY)
+comp_df = load_df(COMP_CSV, COMP_COLS, SESSION_CACHE_KEY)
 acq_sum = summarize_acq(acq_df)
 comp_sum = summarize_comp(comp_df)
 
@@ -725,7 +734,7 @@ with st.sidebar:
     )
 
     def save_acq() -> None:
-        df = load_df(ACQ_CSV, ACQ_COLS)
+        df = load_df(ACQ_CSV, ACQ_COLS, SESSION_CACHE_KEY)
         log_date = st.session_state["w_acq_date"]
         start_play = str(st.session_state["w_acq_start_play"]).strip()
         end_play = str(st.session_state["w_acq_end_play"]).strip()
@@ -859,7 +868,7 @@ with st.sidebar:
     )
 
     def save_comp() -> None:
-        df = load_df(COMP_CSV, COMP_COLS)
+        df = load_df(COMP_CSV, COMP_COLS, SESSION_CACHE_KEY)
         log_date = st.session_state["w_comp_date"]
         start_play = str(st.session_state["w_comp_start_play"]).strip()
         end_play = str(st.session_state["w_comp_end_play"]).strip()
