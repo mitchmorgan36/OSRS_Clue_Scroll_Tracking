@@ -12,7 +12,7 @@ from google_sheets_backend import (
     ACQ_SHEET,
     COMP_SHEET,
     read_sheet_df,
-    append_row,
+    append_row as gs_append_row,
 )
 
 # ----------------------------
@@ -184,10 +184,16 @@ def parse_playtime_hhmm(s: str) -> int:
 
 
 def load_df(path: str, columns: list) -> pd.DataFrame:
-    ensure_data_dir()
-    if not os.path.exists(path):
-        return pd.DataFrame(columns=columns)
-    df = pd.read_csv(path)
+    if path == ACQ_CSV:
+        df = read_sheet_df(ACQ_SHEET, columns)
+    elif path == COMP_CSV:
+        df = read_sheet_df(COMP_SHEET, columns)
+    else:
+        ensure_data_dir()
+        if not os.path.exists(path):
+            return pd.DataFrame(columns=columns)
+        df = pd.read_csv(path)
+
     for col in columns:
         if col not in df.columns:
             df[col] = ""
@@ -198,6 +204,13 @@ def load_df(path: str, columns: list) -> pd.DataFrame:
 
 
 def append_row(path: str, columns: list, row: Dict[str, Any]) -> None:
+    if path == ACQ_CSV:
+        gs_append_row(ACQ_SHEET, columns, row)
+        return
+    if path == COMP_CSV:
+        gs_append_row(COMP_SHEET, columns, row)
+        return
+
     ensure_data_dir()
     df = load_df(path, columns)
     df = pd.concat([df, pd.DataFrame([row])], ignore_index=True)

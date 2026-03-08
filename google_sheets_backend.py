@@ -25,8 +25,8 @@ def _get_gspread_client() -> gspread.Client:
 
 def _get_spreadsheet() -> gspread.Spreadsheet:
     client = _get_gspread_client()
-    sheet_name = st.secrets["google_sheet_name"]
-    return client.open(sheet_name)
+    sheet_id = st.secrets["google_sheet_id"]
+    return client.open_by_key(sheet_id)
 
 
 def _get_worksheet(title: str) -> gspread.Worksheet:
