@@ -2,3 +2,5 @@
 OSRS Wiki - Hard Casket.html
 .streamlit/secrets.toml
 OSRS Hard Clue Tracker - Google Sheets.webloc
+__pycache__/
+*.pyc
