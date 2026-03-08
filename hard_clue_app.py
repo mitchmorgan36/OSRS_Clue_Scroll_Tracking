@@ -1203,6 +1203,7 @@ with tab_acq:
             .sort_values("trip_id", ascending=False),
             use_container_width=True,
             height=350,
+            hide_index=True,
         )
 
         st.divider()
@@ -1251,6 +1252,7 @@ with tab_comp:
             .sort_values("session_id", ascending=False),
             use_container_width=True,
             height=350,
+            hide_index=True,
         )
 
         st.divider()
