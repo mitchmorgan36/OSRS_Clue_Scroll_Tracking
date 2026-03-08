@@ -150,15 +150,21 @@ def inject_ui_dom_script() -> None:
         const rootDoc = window.parent.document;
 
         function hidePressEnterHints() {
-          rootDoc.querySelectorAll('p, div, span, small, label').forEach((el) => {
+          const sidebar = rootDoc.querySelector('section[data-testid="stSidebar"]');
+          if (!sidebar) return;
+
+          sidebar.querySelectorAll('p, div, span, small, label').forEach((el) => {
             const text = (el.textContent || '').trim();
-            if (text === 'Press Enter to submit this form') {
-              const target = el.closest('[data-testid="stCaptionContainer"], [data-testid="stMarkdownContainer"], div');
-              if (target) {
-                target.style.display = 'none';
-              } else {
-                el.style.display = 'none';
-              }
+            if (!text || text.length > 120) return;
+            const normalized = text.toLowerCase().replace(/\\s+/g, ' ');
+            const isSubmitHint = normalized.includes('press') && normalized.includes('enter') && normalized.includes('submit');
+            if (!isSubmitHint) return;
+
+            const target = el.closest('[data-testid="stCaptionContainer"], [data-testid="stMarkdownContainer"], [data-testid="stFormInstructions"]');
+            if (target) {
+              target.style.display = 'none';
+            } else {
+              el.style.display = 'none';
             }
           });
         }
