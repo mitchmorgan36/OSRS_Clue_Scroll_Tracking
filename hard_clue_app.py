@@ -210,9 +210,31 @@ def inject_ui_dom_script() -> None:
           });
         }
 
+        function removeAuxiliaryInputTabStops() {
+          const sidebar = rootDoc.querySelector('section[data-testid="stSidebar"]');
+          if (!sidebar) return;
+
+          const selector = [
+            '[data-testid="stTextInputRootElement"] button',
+            '[data-testid="stNumberInputContainer"] button',
+            '[data-testid="stDateInput"] button',
+            '[data-testid="stTextInputRootElement"] [role="button"]',
+            '[data-testid="stNumberInputContainer"] [role="button"]',
+            '[data-testid="stDateInput"] [role="button"]'
+          ].join(', ');
+
+          sidebar.querySelectorAll(selector).forEach((control) => {
+            if (control.closest('[data-testid="stFormSubmitButton"]')) return;
+            if (control.dataset.uiNoTabPatch === '1') return;
+            control.setAttribute('tabindex', '-1');
+            control.dataset.uiNoTabPatch = '1';
+          });
+        }
+
         function run() {
           hidePressEnterHints();
           applyButtonStyles();
+          removeAuxiliaryInputTabStops();
         }
 
         run();
