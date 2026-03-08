@@ -212,9 +212,9 @@ def inject_ui_dom_script() -> None:
               button.style.color = styles.hoverTextColor || '#f8fafc';
             });
             button.addEventListener('mouseleave', () => {
-              button.style.background = styles.bg || button.dataset.uiOriginalBg || '';
-              button.style.borderColor = styles.border || button.dataset.uiOriginalBorder || '';
-              button.style.color = styles.textColor || button.dataset.uiOriginalColor || '';
+              button.style.background = Object.prototype.hasOwnProperty.call(styles, 'bg') ? styles.bg : '';
+              button.style.borderColor = Object.prototype.hasOwnProperty.call(styles, 'border') ? styles.border : '';
+              button.style.color = Object.prototype.hasOwnProperty.call(styles, 'textColor') ? styles.textColor : '';
             });
           }
         }
