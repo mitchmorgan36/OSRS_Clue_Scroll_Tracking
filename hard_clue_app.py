@@ -61,7 +61,7 @@ section[data-testid="stSidebar"] .block-container {
 }
 section[data-testid="stSidebar"] h2 {
   margin-top: 0.2rem !important;
-  margin-bottom: 0.55rem !important;
+  margin-bottom: 0.4rem !important;
 }
 section[data-testid="stSidebar"] .stMarkdown,
 section[data-testid="stSidebar"] .stCaption,
@@ -73,23 +73,37 @@ section[data-testid="stSidebar"] .stTextArea,
 section[data-testid="stSidebar"] .stButton,
 section[data-testid="stSidebar"] .stForm,
 section[data-testid="stSidebar"] div[data-testid="stFormSubmitButton"] {
-  margin-bottom: 0.18rem !important;
+  margin-bottom: 0.08rem !important;
 }
 section[data-testid="stSidebar"] div[data-testid="stVerticalBlock"] > div:has(> hr) {
-  margin: 0.25rem 0 !important;
+  margin: 0.15rem 0 !important;
 }
 section[data-testid="stSidebar"] hr {
-  margin: 0.35rem 0 !important;
+  margin: 0.2rem 0 !important;
 }
 section[data-testid="stSidebar"] div[data-testid="stForm"] {
-  margin-top: 0.1rem !important;
+  margin-top: 0.05rem !important;
+}
+section[data-testid="stSidebar"] div[data-testid="stWidgetLabel"] {
+  margin-bottom: 0.03rem !important;
+}
+section[data-testid="stSidebar"] [data-testid="stTextInputRootElement"],
+section[data-testid="stSidebar"] [data-testid="stNumberInputContainer"],
+section[data-testid="stSidebar"] [data-baseweb="textarea"] {
+  margin-bottom: 0.08rem !important;
+}
+section[data-testid="stSidebar"] input::placeholder,
+section[data-testid="stSidebar"] textarea::placeholder {
+  color: transparent !important;
+  opacity: 0 !important;
 }
 section[data-testid="stSidebar"] div[data-testid="stCaptionContainer"] p {
-  line-height: 1.2 !important;
+  line-height: 1.15 !important;
+  margin: 0.05rem 0 0.1rem 0 !important;
 }
 
 hr {
-  margin: 0.35rem 0 0.45rem 0 !important;
+  margin: 0.2rem 0 0.3rem 0 !important;
 }
 .block-container {
   padding-top: 1.0rem !important;
@@ -97,21 +111,22 @@ hr {
 
 /* Compact the metric rows across all tabs */
 div[data-testid="metric-container"] {
-  padding: 0.18rem 0.4rem !important;
+  padding: 0.08rem 0.28rem !important;
   min-height: unset !important;
 }
 div[data-testid="metric-container"] > div {
-  gap: 0.02rem !important;
+  gap: 0 !important;
 }
 div[data-testid="metric-container"] label {
   margin-bottom: 0 !important;
 }
 div[data-testid="metric-container"] [data-testid="stMetricLabel"] p {
-  font-size: 0.82rem !important;
+  font-size: 0.76rem !important;
+  line-height: 1.05 !important;
 }
 div[data-testid="metric-container"] [data-testid="stMetricValue"] {
-  font-size: 1.45rem !important;
-  line-height: 1.05 !important;
+  font-size: 1.22rem !important;
+  line-height: 1.0 !important;
 }
 
 /* Slightly reduce default spacing around column blocks holding metrics */
@@ -958,12 +973,12 @@ with st.sidebar:
 
     with st.form("acquisition_logger_form", clear_on_submit=False):
         st.date_input("Date", key="w_acq_date")
-        st.text_input("Start playtime (HH.mm)", key="w_acq_start_play")
-        st.text_input("End playtime (HH.mm)", key="w_acq_end_play")
+        st.text_input("Start playtime (HH.mm)", key="w_acq_start_play", placeholder="")
+        st.text_input("End playtime (HH.mm)", key="w_acq_end_play", placeholder="")
         st.number_input("Start bloods", min_value=0, step=1, value=None, key="w_acq_start_blood")
         st.number_input("End bloods", min_value=0, step=1, value=None, key="w_acq_end_blood")
         st.number_input("Clues obtained", min_value=1, step=1, key="w_acq_clues")
-        st.text_area("Notes", key="w_acq_notes", height=90)
+        st.text_area("Notes", key="w_acq_notes", height=72, placeholder="")
         st.caption("Duration uses playtime if both are entered; otherwise uses system Start/End.")
         acq_submit = st.form_submit_button("Save Acquisition Trip", type="primary", use_container_width=True)
 
@@ -1064,10 +1079,10 @@ with st.sidebar:
 
     with st.form("completion_logger_form", clear_on_submit=False):
         st.date_input("Date", key="w_comp_date")
-        st.text_input("Start playtime (HH.mm)", key="w_comp_start_play")
-        st.text_input("End playtime (HH.mm)", key="w_comp_end_play")
+        st.text_input("Start playtime (HH.mm)", key="w_comp_start_play", placeholder="")
+        st.text_input("End playtime (HH.mm)", key="w_comp_end_play", placeholder="")
         st.number_input("Caskets completed", min_value=1, step=1, key="w_comp_completed")
-        st.text_area("Notes", key="w_comp_notes", height=90)
+        st.text_area("Notes", key="w_comp_notes", height=72, placeholder="")
         st.caption("Duration uses playtime if both are entered; otherwise uses system Start/End.")
         comp_submit = st.form_submit_button("Save Completion Session", type="primary", use_container_width=True)
 
