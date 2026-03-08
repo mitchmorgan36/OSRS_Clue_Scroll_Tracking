@@ -25,7 +25,12 @@ def _get_gspread_client() -> gspread.Client:
 
 def _get_spreadsheet() -> gspread.Spreadsheet:
     client = _get_gspread_client()
-    sheet_id = st.secrets["google_sheet_id"]
+
+    if "google_sheet_id" in st.secrets:
+        sheet_id = st.secrets["google_sheet_id"]
+    else:
+        sheet_id = st.secrets["gcp_service_account"]["google_sheet_id"]
+
     return client.open_by_key(sheet_id)
 
 
