@@ -3,6 +3,8 @@ import math
 from datetime import date, datetime
 from typing import Dict, Any
 
+from zoneinfo import ZoneInfo
+
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
@@ -33,42 +35,7 @@ DEATHS_PER_BLOOD = 2
 
 AVG_REWARD_ROLLS_PER_CASKET = 5
 EXPECTED_ALCH_GP_PER_CASKET = 54244.076180305085
-
-ACQ_HEADERS = [
-    "trip_id",
-    "log_date",
-    "start_playtime",
-    "end_playtime",
-    "duration_seconds_playtime",
-    "start_system",
-    "end_system",
-    "duration_seconds_system",
-    "duration_seconds",
-    "start_bloods",
-    "end_bloods",
-    "bloods_used",
-    "deaths_used",
-    "clues",
-    "gp_cost",
-    "gp_per_clue",
-    "clues_per_hour",
-    "notes",
-]
-
-COMP_HEADERS = [
-    "session_id",
-    "log_date",
-    "start_playtime",
-    "end_playtime",
-    "duration_seconds_playtime",
-    "start_system",
-    "end_system",
-    "duration_seconds_system",
-    "duration_seconds",
-    "clues_completed",
-    "clues_per_hour",
-    "notes",
-]
+LOCAL_TIMEZONE = ZoneInfo("America/New_York")
 
 # ----------------------------
 # UI tightening
@@ -182,16 +149,21 @@ def parse_playtime_hhmm(s: str) -> int:
     return hh * 3600 + mm * 60
 
 
+def now_local() -> datetime:
+    return datetime.now(LOCAL_TIMEZONE)
 
-def load_df(path: str, columns: list) -> pd.DataFrame:
+
+
+@st.cache_data(show_spinner=False)
+def load_df(path: str, columns: tuple[str, ...]) -> pd.DataFrame:
     if path == ACQ_CSV:
-        df = read_sheet_df(ACQ_SHEET, columns)
+        df = read_sheet_df(ACQ_SHEET, list(columns))
     elif path == COMP_CSV:
-        df = read_sheet_df(COMP_SHEET, columns)
+        df = read_sheet_df(COMP_SHEET, list(columns))
     else:
         ensure_data_dir()
         if not os.path.exists(path):
-            return pd.DataFrame(columns=columns)
+            return pd.DataFrame(columns=list(columns))
         df = pd.read_csv(path)
 
     for col in columns:
@@ -199,16 +171,21 @@ def load_df(path: str, columns: list) -> pd.DataFrame:
             df[col] = ""
     if "log_date" in df.columns:
         df["log_date"] = pd.to_datetime(df["log_date"], errors="coerce").dt.date
-    return df[columns]
+    return df[list(columns)].copy()
 
 
 
-def append_row(path: str, columns: list, row: Dict[str, Any]) -> None:
+def clear_loaded_data_cache() -> None:
+    load_df.clear()
+
+
+
+def append_row(path: str, columns: tuple[str, ...], row: Dict[str, Any]) -> None:
     if path == ACQ_CSV:
-        gs_append_row(ACQ_SHEET, columns, row)
+        gs_append_row(ACQ_SHEET, list(columns), row)
         return
     if path == COMP_CSV:
-        gs_append_row(COMP_SHEET, columns, row)
+        gs_append_row(COMP_SHEET, list(columns), row)
         return
 
     ensure_data_dir()
@@ -559,7 +536,7 @@ def build_end_to_end_chart(acq_df: pd.DataFrame, comp_df: pd.DataFrame) -> go.Fi
 # ----------------------------
 # Data schemas
 # ----------------------------
-ACQ_COLS = [
+ACQ_COLS = (
     "trip_id",
     "log_date",
     "start_playtime",
@@ -579,9 +556,9 @@ ACQ_COLS = [
     "clues_per_hour",
     "gp_per_hour",
     "notes",
-]
+)
 
-COMP_COLS = [
+COMP_COLS = (
     "session_id",
     "log_date",
     "start_playtime",
@@ -594,7 +571,7 @@ COMP_COLS = [
     "clues_completed",
     "clues_per_hour",
     "notes",
-]
+)
 
 
 # ----------------------------
@@ -726,37 +703,28 @@ st.progress(progress, text=f"Progress to {GOAL_CASKETS} caskets: {acq_logged} / 
 # ----------------------------
 with st.sidebar:
     st.header("Acquisition Logger")
-    st.date_input("Date", key="w_acq_date")
-    colA, colB = st.columns(2)
 
-    def acq_start_now():
-        st.session_state["acq_start_system"] = datetime.now()
+    def acq_start_now() -> None:
+        st.session_state["acq_start_system"] = now_local()
         st.session_state["acq_end_system"] = None
 
-    def acq_end_now():
-        st.session_state["acq_end_system"] = datetime.now()
+    def acq_end_now() -> None:
+        st.session_state["acq_end_system"] = now_local()
 
-    with colA:
-        st.button("Start Now", on_click=acq_start_now, use_container_width=True)
-    with colB:
-        st.button("End Now", on_click=acq_end_now, use_container_width=True)
+    acq_btn_col1, acq_btn_col2 = st.columns(2)
+    with acq_btn_col1:
+        st.button("Start Now", on_click=acq_start_now, use_container_width=True, key="btn_acq_start")
+    with acq_btn_col2:
+        st.button("End Now", on_click=acq_end_now, use_container_width=True, key="btn_acq_end")
 
     s0 = st.session_state.get("acq_start_system")
     e0 = st.session_state.get("acq_end_system")
     st.caption(
-        f"System start: **{s0.strftime('%Y-%m-%d %H:%M') if s0 else '—'}**  \n"
-        f"System end: **{e0.strftime('%Y-%m-%d %H:%M') if e0 else '—'}**"
+        f"System start: **{s0.strftime('%Y-%m-%d %H:%M:%S') if s0 else '—'}**  \n"
+        f"System end: **{e0.strftime('%Y-%m-%d %H:%M:%S') if e0 else '—'}**"
     )
 
-    st.text_input("Start playtime (HH.mm)", key="w_acq_start_play", placeholder="e.g. 1.25")
-    st.text_input("End playtime (HH.mm)", key="w_acq_end_play", placeholder="e.g. 2.10")
-    st.number_input("Start bloods", min_value=0, step=1, value=None, key="w_acq_start_blood")
-    st.number_input("End bloods", min_value=0, step=1, value=None, key="w_acq_end_blood")
-    st.number_input("Clues obtained", min_value=1, step=1, key="w_acq_clues")
-    st.text_area("Notes", key="w_acq_notes", placeholder="Optional notes for this acquisition trip", height=90)
-    st.caption("Duration uses playtime if both are entered; otherwise uses system Start/End.")
-
-    def save_acq():
+    def save_acq() -> None:
         df = load_df(ACQ_CSV, ACQ_COLS)
         log_date = st.session_state["w_acq_date"]
         start_play = str(st.session_state["w_acq_start_play"]).strip()
@@ -807,7 +775,9 @@ with st.sidebar:
         clues_per_hour = float(clues / hours) if hours > 0 else 0.0
         gp_per_hour = float(gp_cost / hours) if hours > 0 else 0.0
         gp_per_clue = float(gp_cost / clues) if clues > 0 else 0.0
-        next_id = int(pd.to_numeric(df["trip_id"], errors="coerce").max() + 1) if not df.empty and pd.to_numeric(df["trip_id"], errors="coerce").notna().any() else 1
+
+        numeric_ids = pd.to_numeric(df["trip_id"], errors="coerce") if not df.empty else pd.Series(dtype=float)
+        next_id = int(numeric_ids.max() + 1) if numeric_ids.notna().any() else 1
 
         row = {
             "trip_id": next_id,
@@ -831,60 +801,64 @@ with st.sidebar:
             "notes": notes,
         }
         append_row(ACQ_CSV, ACQ_COLS, row)
+        clear_loaded_data_cache()
 
-        pending = {
+        st.session_state["pending"] = {
             "w_acq_start_play": end_play if end_play else st.session_state.get("w_acq_start_play", ""),
             "w_acq_end_play": "",
             "w_acq_start_blood": end_blood,
             "w_acq_end_blood": None,
             "w_acq_notes": "",
         }
-        st.session_state["pending"] = pending
         st.session_state["pending_apply"] = True
 
         if ee:
             st.session_state["acq_start_system"] = ee
         st.session_state["acq_end_system"] = None
-        st.rerun()
 
-    if st.button("Save Acquisition Trip", type="primary", use_container_width=True):
+    with st.form("acquisition_logger_form", clear_on_submit=False):
+        st.date_input("Date", key="w_acq_date")
+        st.text_input("Start playtime (HH.mm)", key="w_acq_start_play", placeholder="e.g. 1.25")
+        st.text_input("End playtime (HH.mm)", key="w_acq_end_play", placeholder="e.g. 2.10")
+        st.number_input("Start bloods", min_value=0, step=1, value=None, key="w_acq_start_blood")
+        st.number_input("End bloods", min_value=0, step=1, value=None, key="w_acq_end_blood")
+        st.number_input("Clues obtained", min_value=1, step=1, key="w_acq_clues")
+        st.text_area("Notes", key="w_acq_notes", placeholder="Optional notes for this acquisition trip", height=90)
+        st.caption("Duration uses playtime if both are entered; otherwise uses system Start/End.")
+        acq_submit = st.form_submit_button("Save Acquisition Trip", type="primary", use_container_width=True)
+
+    if acq_submit:
         try:
             save_acq()
-            st.success("Saved.")
+            st.success("Saved acquisition trip.")
+            st.rerun()
         except Exception as ex:
             st.error(str(ex))
 
     st.divider()
     st.header("Completion Logger")
-    st.date_input("Date", key="w_comp_date")
-    colC, colD = st.columns(2)
 
-    def comp_start_now():
-        st.session_state["comp_start_system"] = datetime.now()
+    def comp_start_now() -> None:
+        st.session_state["comp_start_system"] = now_local()
         st.session_state["comp_end_system"] = None
 
-    def comp_end_now():
-        st.session_state["comp_end_system"] = datetime.now()
+    def comp_end_now() -> None:
+        st.session_state["comp_end_system"] = now_local()
 
-    with colC:
+    comp_btn_col1, comp_btn_col2 = st.columns(2)
+    with comp_btn_col1:
         st.button("Start Now", on_click=comp_start_now, use_container_width=True, key="btn_comp_start")
-    with colD:
+    with comp_btn_col2:
         st.button("End Now", on_click=comp_end_now, use_container_width=True, key="btn_comp_end")
 
     s1 = st.session_state.get("comp_start_system")
     e1 = st.session_state.get("comp_end_system")
     st.caption(
-        f"System start: **{s1.strftime('%Y-%m-%d %H:%M') if s1 else '—'}**  \n"
-        f"System end: **{e1.strftime('%Y-%m-%d %H:%M') if e1 else '—'}**"
+        f"System start: **{s1.strftime('%Y-%m-%d %H:%M:%S') if s1 else '—'}**  \n"
+        f"System end: **{e1.strftime('%Y-%m-%d %H:%M:%S') if e1 else '—'}**"
     )
 
-    st.text_input("Start playtime (HH.mm)", key="w_comp_start_play", placeholder="e.g. 12.40")
-    st.text_input("End playtime (HH.mm)", key="w_comp_end_play", placeholder="e.g. 13.25")
-    st.number_input("Caskets completed", min_value=1, step=1, key="w_comp_completed")
-    st.text_area("Notes", key="w_comp_notes", placeholder="Optional notes for this completion session", height=90)
-    st.caption("Duration uses playtime if both are entered; otherwise uses system Start/End.")
-
-    def save_comp():
+    def save_comp() -> None:
         df = load_df(COMP_CSV, COMP_COLS)
         log_date = st.session_state["w_comp_date"]
         start_play = str(st.session_state["w_comp_start_play"]).strip()
@@ -920,7 +894,7 @@ with st.sidebar:
         hours = dur / 3600.0
         clues_per_hour = float(completed / hours) if hours > 0 else 0.0
         numeric_ids = pd.to_numeric(df["session_id"], errors="coerce") if not df.empty else pd.Series(dtype=float)
-        next_id = int(numeric_ids.max() + 1) if not df.empty and numeric_ids.notna().any() else 1
+        next_id = int(numeric_ids.max() + 1) if numeric_ids.notna().any() else 1
 
         row = {
             "session_id": next_id,
@@ -937,6 +911,7 @@ with st.sidebar:
             "notes": notes,
         }
         append_row(COMP_CSV, COMP_COLS, row)
+        clear_loaded_data_cache()
 
         pending = {"w_comp_end_play": "", "w_comp_notes": ""}
         if end_play:
@@ -947,19 +922,22 @@ with st.sidebar:
         st.session_state["pending"] = pending
         st.session_state["pending_apply"] = True
 
-    if st.button("Save Completion Session", type="primary", use_container_width=True):
+    with st.form("completion_logger_form", clear_on_submit=False):
+        st.date_input("Date", key="w_comp_date")
+        st.text_input("Start playtime (HH.mm)", key="w_comp_start_play", placeholder="e.g. 12.40")
+        st.text_input("End playtime (HH.mm)", key="w_comp_end_play", placeholder="e.g. 13.25")
+        st.number_input("Caskets completed", min_value=1, step=1, key="w_comp_completed")
+        st.text_area("Notes", key="w_comp_notes", placeholder="Optional notes for this completion session", height=90)
+        st.caption("Duration uses playtime if both are entered; otherwise uses system Start/End.")
+        comp_submit = st.form_submit_button("Save Completion Session", type="primary", use_container_width=True)
+
+    if comp_submit:
         try:
             save_comp()
-            st.success("Saved.")
+            st.success("Saved completion session.")
+            st.rerun()
         except Exception as ex:
             st.error(str(ex))
-
-
-# Refresh after possible saves
-acq_df = load_df(ACQ_CSV, ACQ_COLS)
-comp_df = load_df(COMP_CSV, COMP_COLS)
-acq_sum = summarize_acq(acq_df)
-comp_sum = summarize_comp(comp_df)
 
 
 # ----------------------------
