@@ -9,14 +9,10 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
+import streamlit.components.v1 as components
 from plotly.subplots import make_subplots
 
-from google_sheets_backend import (
-    ACQ_SHEET,
-    COMP_SHEET,
-    read_sheet_df,
-    append_row as gs_append_row,
-)
+import google_sheets_backend as gsb
 
 # ----------------------------
 # Config
@@ -44,6 +40,29 @@ LOCAL_TIMEZONE = ZoneInfo("America/New_York")
 st.markdown(
     """
 <style>
+:root {
+  --acq-save-bg: #3b82b6;
+  --acq-save-border: #2f6f9a;
+  --acq-save-hover: #2f6f9a;
+  --comp-save-bg: #8a7a34;
+  --comp-save-border: #6f6228;
+  --comp-save-hover: #726326;
+  --start-hover-bg: #2f7d57;
+  --start-hover-border: #256347;
+  --end-hover-bg: #b4534d;
+  --end-hover-border: #8f413b;
+}
+
+section[data-testid="stSidebar"] > div {
+  padding-top: 0.35rem !important;
+}
+section[data-testid="stSidebar"] .block-container {
+  padding-top: 0.25rem !important;
+}
+section[data-testid="stSidebar"] h2 {
+  margin-top: 0.2rem !important;
+  margin-bottom: 0.55rem !important;
+}
 section[data-testid="stSidebar"] .stMarkdown,
 section[data-testid="stSidebar"] .stCaption,
 section[data-testid="stSidebar"] label,
@@ -51,34 +70,143 @@ section[data-testid="stSidebar"] .stTextInput,
 section[data-testid="stSidebar"] .stNumberInput,
 section[data-testid="stSidebar"] .stDateInput,
 section[data-testid="stSidebar"] .stTextArea,
-section[data-testid="stSidebar"] .stButton {
-  margin-bottom: 0.30rem !important;
+section[data-testid="stSidebar"] .stButton,
+section[data-testid="stSidebar"] .stForm,
+section[data-testid="stSidebar"] div[data-testid="stFormSubmitButton"] {
+  margin-bottom: 0.18rem !important;
+}
+section[data-testid="stSidebar"] div[data-testid="stVerticalBlock"] > div:has(> hr) {
+  margin: 0.25rem 0 !important;
 }
 section[data-testid="stSidebar"] hr {
-  margin: 0.45rem 0 !important;
+  margin: 0.35rem 0 !important;
 }
-section[data-testid="stSidebar"] > div {
-  padding-top: 0.65rem !important;
+section[data-testid="stSidebar"] div[data-testid="stForm"] {
+  margin-top: 0.1rem !important;
 }
-div[data-testid="metric-container"] {
-  padding: 0.25rem 0.45rem !important;
+section[data-testid="stSidebar"] div[data-testid="stCaptionContainer"] p {
+  line-height: 1.2 !important;
 }
-div[data-testid="metric-container"] > div {
-  gap: 0.05rem !important;
-}
-div[data-testid="metric-container"] label {
-  margin-bottom: 0 !important;
-}
+
 hr {
   margin: 0.35rem 0 0.45rem 0 !important;
 }
 .block-container {
-  padding-top: 1.2rem !important;
+  padding-top: 1.0rem !important;
+}
+
+/* Compact the metric rows across all tabs */
+div[data-testid="metric-container"] {
+  padding: 0.18rem 0.4rem !important;
+  min-height: unset !important;
+}
+div[data-testid="metric-container"] > div {
+  gap: 0.02rem !important;
+}
+div[data-testid="metric-container"] label {
+  margin-bottom: 0 !important;
+}
+div[data-testid="metric-container"] [data-testid="stMetricLabel"] p {
+  font-size: 0.82rem !important;
+}
+div[data-testid="metric-container"] [data-testid="stMetricValue"] {
+  font-size: 1.45rem !important;
+  line-height: 1.05 !important;
+}
+
+/* Slightly reduce default spacing around column blocks holding metrics */
+div[data-testid="column"] div[data-testid="metric-container"] {
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
 }
 </style>
 """,
     unsafe_allow_html=True,
 )
+
+
+# ----------------------------
+# UI DOM polish
+# ----------------------------
+def inject_ui_dom_script() -> None:
+    components.html(
+        """
+        <script>
+        const rootDoc = window.parent.document;
+
+        function hidePressEnterHints() {
+          rootDoc.querySelectorAll('p, div, span, small, label').forEach((el) => {
+            const text = (el.textContent || '').trim();
+            if (text === 'Press Enter to submit this form') {
+              const target = el.closest('[data-testid="stCaptionContainer"], [data-testid="stMarkdownContainer"], div');
+              if (target) {
+                target.style.display = 'none';
+              } else {
+                el.style.display = 'none';
+              }
+            }
+          });
+        }
+
+        function styleButton(button, styles) {
+          if (!button) return;
+          if (styles.bg) button.style.background = styles.bg;
+          if (styles.border) button.style.borderColor = styles.border;
+          if (styles.textColor) button.style.color = styles.textColor;
+          button.style.transition = 'background-color 120ms ease, border-color 120ms ease, color 120ms ease';
+
+          if (!button.dataset.uiOriginalBg) {
+            button.dataset.uiOriginalBg = button.style.background || '';
+            button.dataset.uiOriginalBorder = button.style.borderColor || '';
+            button.dataset.uiOriginalColor = button.style.color || '';
+          }
+
+          if (styles.hoverBg && !button.dataset.uiHoverBound) {
+            button.dataset.uiHoverBound = '1';
+            button.addEventListener('mouseenter', () => {
+              button.style.background = styles.hoverBg;
+              button.style.borderColor = styles.hoverBorder || styles.hoverBg;
+              button.style.color = styles.hoverTextColor || '#f8fafc';
+            });
+            button.addEventListener('mouseleave', () => {
+              button.style.background = styles.bg || button.dataset.uiOriginalBg || '';
+              button.style.borderColor = styles.border || button.dataset.uiOriginalBorder || '';
+              button.style.color = styles.textColor || button.dataset.uiOriginalColor || '';
+            });
+          }
+        }
+
+        function applyButtonStyles() {
+          const buttons = Array.from(rootDoc.querySelectorAll('button'));
+          buttons.forEach((button) => {
+            const label = (button.innerText || button.textContent || '').trim();
+            if (label === 'Save Acquisition Trip') {
+              styleButton(button, { bg: '#3b82b6', border: '#2f6f9a', textColor: '#f8fafc', hoverBg: '#2f6f9a', hoverBorder: '#285f82', hoverTextColor: '#f8fafc' });
+            }
+            if (label === 'Save Completion Session') {
+              styleButton(button, { bg: '#8a7a34', border: '#6f6228', textColor: '#f8fafc', hoverBg: '#726326', hoverBorder: '#5f521f', hoverTextColor: '#f8fafc' });
+            }
+            if (label === 'Start Now') {
+              styleButton(button, { hoverBg: '#2f7d57', hoverBorder: '#256347', hoverTextColor: '#f8fafc' });
+            }
+            if (label === 'End Now') {
+              styleButton(button, { hoverBg: '#b4534d', hoverBorder: '#8f413b', hoverTextColor: '#f8fafc' });
+            }
+          });
+        }
+
+        function run() {
+          hidePressEnterHints();
+          applyButtonStyles();
+        }
+
+        run();
+        const observer = new MutationObserver(run);
+        observer.observe(rootDoc.body, { childList: true, subtree: true });
+        </script>
+        """,
+        height=0,
+    )
 
 
 # ----------------------------
@@ -158,9 +286,9 @@ def now_local() -> datetime:
 @st.cache_data(show_spinner=False)
 def load_df(path: str, columns: tuple[str, ...], session_cache_key: str) -> pd.DataFrame:
     if path == ACQ_CSV:
-        df = read_sheet_df(ACQ_SHEET, list(columns))
+        df = gsb.read_sheet_df(gsb.ACQ_SHEET, list(columns))
     elif path == COMP_CSV:
-        df = read_sheet_df(COMP_SHEET, list(columns))
+        df = gsb.read_sheet_df(gsb.COMP_SHEET, list(columns))
     else:
         ensure_data_dir()
         if not os.path.exists(path):
@@ -189,10 +317,10 @@ def get_session_cache_key() -> str:
 
 def append_row(path: str, columns: tuple[str, ...], row: Dict[str, Any]) -> None:
     if path == ACQ_CSV:
-        gs_append_row(ACQ_SHEET, list(columns), row)
+        gsb.append_row(gsb.ACQ_SHEET, list(columns), row)
         return
     if path == COMP_CSV:
-        gs_append_row(COMP_SHEET, list(columns), row)
+        gsb.append_row(gsb.COMP_SHEET, list(columns), row)
         return
 
     ensure_data_dir()
@@ -256,6 +384,8 @@ def build_duration_histogram(df: pd.DataFrame, value_col: str, id_col: str, titl
     counts = []
     for interval, c in hist.items():
         if int(c) <= 0:
+            continue
+        if not isinstance(interval, pd.Interval):
             continue
         left = float(interval.left)
         right = float(interval.right)
@@ -705,6 +835,7 @@ st.title("Hard Clue Dashboard")
 acq_logged = int(acq_sum.get("total_clues", 0))
 progress = min(1.0, acq_logged / GOAL_CASKETS) if GOAL_CASKETS > 0 else 0.0
 st.progress(progress, text=f"Progress to {GOAL_CASKETS} caskets: {acq_logged} / {GOAL_CASKETS} ({progress * 100:.1f}%)")
+inject_ui_dom_script()
 
 
 # ----------------------------
@@ -827,12 +958,12 @@ with st.sidebar:
 
     with st.form("acquisition_logger_form", clear_on_submit=False):
         st.date_input("Date", key="w_acq_date")
-        st.text_input("Start playtime (HH.mm)", key="w_acq_start_play", placeholder="e.g. 1.25")
-        st.text_input("End playtime (HH.mm)", key="w_acq_end_play", placeholder="e.g. 2.10")
+        st.text_input("Start playtime (HH.mm)", key="w_acq_start_play")
+        st.text_input("End playtime (HH.mm)", key="w_acq_end_play")
         st.number_input("Start bloods", min_value=0, step=1, value=None, key="w_acq_start_blood")
         st.number_input("End bloods", min_value=0, step=1, value=None, key="w_acq_end_blood")
         st.number_input("Clues obtained", min_value=1, step=1, key="w_acq_clues")
-        st.text_area("Notes", key="w_acq_notes", placeholder="Optional notes for this acquisition trip", height=90)
+        st.text_area("Notes", key="w_acq_notes", height=90)
         st.caption("Duration uses playtime if both are entered; otherwise uses system Start/End.")
         acq_submit = st.form_submit_button("Save Acquisition Trip", type="primary", use_container_width=True)
 
@@ -933,10 +1064,10 @@ with st.sidebar:
 
     with st.form("completion_logger_form", clear_on_submit=False):
         st.date_input("Date", key="w_comp_date")
-        st.text_input("Start playtime (HH.mm)", key="w_comp_start_play", placeholder="e.g. 12.40")
-        st.text_input("End playtime (HH.mm)", key="w_comp_end_play", placeholder="e.g. 13.25")
+        st.text_input("Start playtime (HH.mm)", key="w_comp_start_play")
+        st.text_input("End playtime (HH.mm)", key="w_comp_end_play")
         st.number_input("Caskets completed", min_value=1, step=1, key="w_comp_completed")
-        st.text_area("Notes", key="w_comp_notes", placeholder="Optional notes for this completion session", height=90)
+        st.text_area("Notes", key="w_comp_notes", height=90)
         st.caption("Duration uses playtime if both are entered; otherwise uses system Start/End.")
         comp_submit = st.form_submit_button("Save Completion Session", type="primary", use_container_width=True)
 
