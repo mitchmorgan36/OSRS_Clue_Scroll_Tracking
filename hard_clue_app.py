@@ -39,12 +39,12 @@ st.markdown(
     """
 <style>
 :root {
-  --acq-save-bg: #3b82b6;
-  --acq-save-border: #2f6f9a;
-  --acq-save-hover: #2f6f9a;
-  --comp-save-bg: #8a7a34;
-  --comp-save-border: #6f6228;
-  --comp-save-hover: #726326;
+  --acq-save-bg: #1d4ed8;
+  --acq-save-border: #1e40af;
+  --acq-save-hover: #1e40af;
+  --comp-save-bg: #0f766e;
+  --comp-save-border: #115e59;
+  --comp-save-hover: #115e59;
   --start-hover-bg: #2f7d57;
   --start-hover-border: #256347;
   --end-hover-bg: #b4534d;
@@ -135,6 +135,7 @@ div[data-testid="column"] div[data-testid="metric-container"] {
   margin-top: 0 !important;
   margin-bottom: 0 !important;
 }
+
 </style>
 """,
     unsafe_allow_html=True,
@@ -222,10 +223,10 @@ def inject_ui_dom_script() -> None:
           buttons.forEach((button) => {
             const label = (button.innerText || button.textContent || '').trim();
             if (label === 'Save Acquisition Trip') {
-              styleButton(button, { bg: '#3b82b6', border: '#2f6f9a', textColor: '#f8fafc', hoverBg: '#2f6f9a', hoverBorder: '#285f82', hoverTextColor: '#f8fafc' });
+              styleButton(button, { bg: '#1d4ed8', border: '#1e40af', textColor: '#f8fafc', hoverBg: '#1e40af', hoverBorder: '#1e3a8a', hoverTextColor: '#f8fafc' });
             }
             if (label === 'Save Completion Session') {
-              styleButton(button, { bg: '#8a7a34', border: '#6f6228', textColor: '#f8fafc', hoverBg: '#726326', hoverBorder: '#5f521f', hoverTextColor: '#f8fafc' });
+              styleButton(button, { bg: '#0f766e', border: '#115e59', textColor: '#f8fafc', hoverBg: '#115e59', hoverBorder: '#134e4a', hoverTextColor: '#f8fafc' });
             }
             if (label === 'Start Now') {
               styleButton(button, { hoverBg: '#2f7d57', hoverBorder: '#256347', hoverTextColor: '#f8fafc' });
