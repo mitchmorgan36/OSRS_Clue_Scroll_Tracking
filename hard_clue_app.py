@@ -1,5 +1,4 @@
 import os
-import math
 from datetime import date, datetime
 from typing import Dict, Any
 from uuid import uuid4
@@ -10,7 +9,6 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 import streamlit.components.v1 as components
-from plotly.subplots import make_subplots
 
 import google_sheets_backend as gsb
 
@@ -428,14 +426,77 @@ def make_line_layout(title: str, x_title: str, y_title: str, y2_title: str | Non
 
 
 
-def build_duration_histogram(df: pd.DataFrame, value_col: str, id_col: str, title: str) -> go.Figure:
-    d = coerce_numeric(df, [value_col, id_col]).dropna(subset=[value_col]).copy()
+def minutes_to_hhmm(total_minutes: float) -> str:
+    return seconds_to_hhmm(float(total_minutes or 0) * 60.0)
+
+
+def prepare_acq_metrics(df: pd.DataFrame) -> pd.DataFrame:
+    d = coerce_numeric(
+        df,
+        [
+            "trip_id",
+            "duration_seconds",
+            "clues",
+            "bloods_used",
+            "deaths_used",
+            "gp_cost",
+            "gp_per_clue",
+            "clues_per_hour",
+        ],
+    ).copy()
+    d["log_date"] = pd.to_datetime(d["log_date"], errors="coerce")
+    if "notes" not in d.columns:
+        d["notes"] = ""
+    d["notes"] = d["notes"].fillna("")
+
+    d = d.sort_values(["trip_id", "log_date"], na_position="last").copy()
+    clues = d["clues"].where(d["clues"] > 0)
+    hours = d["duration_seconds"] / 3600.0
+
+    d["minutes_per_clue"] = (d["duration_seconds"] / 60.0).div(clues)
+    d["bloods_per_clue"] = d["bloods_used"].div(clues)
+    d["gp_spent_per_clue"] = d["gp_per_clue"].where(d["gp_per_clue"].notna(), d["gp_cost"].div(clues))
+    d["clues_per_hour"] = d["clues_per_hour"].where(d["clues_per_hour"].notna(), d["clues"].div(hours))
+    d["rolling_10_trip_avg_minutes_per_clue"] = d["minutes_per_clue"].rolling(window=10, min_periods=1).mean()
+    d["duration"] = d["duration_seconds"].apply(seconds_to_hhmm)
+    d["log_date"] = d["log_date"].dt.date
+    return d
+
+
+def prepare_comp_metrics(df: pd.DataFrame) -> pd.DataFrame:
+    d = coerce_numeric(
+        df,
+        [
+            "session_id",
+            "duration_seconds",
+            "clues_completed",
+            "clues_per_hour",
+        ],
+    ).copy()
+    d["log_date"] = pd.to_datetime(d["log_date"], errors="coerce")
+    if "notes" not in d.columns:
+        d["notes"] = ""
+    d["notes"] = d["notes"].fillna("")
+
+    d = d.sort_values(["session_id", "log_date"], na_position="last").copy()
+    completed = d["clues_completed"].where(d["clues_completed"] > 0)
+    hours = d["duration_seconds"] / 3600.0
+
+    d["minutes_per_casket"] = (d["duration_seconds"] / 60.0).div(completed)
+    d["caskets_per_hour"] = d["clues_per_hour"].where(d["clues_per_hour"].notna(), d["clues_completed"].div(hours))
+    d["rolling_10_session_avg_minutes_per_casket"] = d["minutes_per_casket"].rolling(window=10, min_periods=1).mean()
+    d["duration"] = d["duration_seconds"].apply(seconds_to_hhmm)
+    d["log_date"] = d["log_date"].dt.date
+    return d
+
+
+def build_range_histogram(series: pd.Series, title: str, x_title: str, y_title: str, height: int = 340) -> go.Figure:
+    values = pd.to_numeric(series, errors="coerce").dropna()
     fig = go.Figure()
-    if d.empty:
-        fig.update_layout(title=title, height=340)
+    if values.empty:
+        fig.update_layout(title=title, height=height)
         return fig
 
-    values = d[value_col]
     count = len(values)
     if count <= 5:
         bin_count = max(3, count)
@@ -452,290 +513,275 @@ def build_duration_histogram(df: pd.DataFrame, value_col: str, id_col: str, titl
     labels = []
     counts = []
     for interval, c in hist.items():
-        if int(c) <= 0:
+        if int(c) <= 0 or not isinstance(interval, pd.Interval):
             continue
-        if not isinstance(interval, pd.Interval):
-            continue
-        left = float(interval.left)
-        right = float(interval.right)
-        labels.append(f"{left:.1f}–{right:.1f}")
+        labels.append(f"{float(interval.left):.2f}–{float(interval.right):.2f}")
         counts.append(int(c))
 
-    fig.add_trace(go.Bar(x=labels, y=counts, name="Count"))
+    fig.add_trace(go.Bar(x=labels, y=counts, name="Count", marker_color="#4f46e5"))
     fig.update_layout(
         title=title,
-        height=340,
+        height=height,
         margin=dict(l=40, r=20, t=48, b=40),
-        xaxis=dict(title="Duration range (minutes)", tickangle=0),
-        yaxis=dict(title="Trips"),
+        xaxis=dict(title=x_title),
+        yaxis=dict(title=y_title),
         showlegend=False,
     )
     return fig
 
 
-
-def build_completion_histogram(df: pd.DataFrame) -> go.Figure:
-    d = coerce_numeric(df, ["session_id", "clues_completed"]).dropna(subset=["clues_completed"]).copy()
+def build_acq_minutes_per_clue_chart(df: pd.DataFrame) -> go.Figure:
+    d = df.dropna(subset=["trip_id", "minutes_per_clue"]).sort_values("trip_id").copy()
     fig = go.Figure()
+    fig.update_layout(**make_line_layout("Minutes per clue by trip", "Trip #", "Minutes per clue", height=420))
     if d.empty:
-        fig.update_layout(title="Caskets completed per session", height=340)
         return fig
-
-    counts = d["clues_completed"].value_counts().sort_index()
-    fig.add_trace(go.Bar(x=[str(int(x)) for x in counts.index], y=counts.values, name="Count"))
-    fig.update_layout(
-        title="Caskets completed per session",
-        height=340,
-        margin=dict(l=40, r=20, t=48, b=40),
-        xaxis=dict(title="Caskets completed"),
-        yaxis=dict(title="Sessions"),
-        showlegend=False,
-    )
-    return fig
-
-
-
-def build_acq_combined_chart(df: pd.DataFrame) -> go.Figure:
-    d = (
-        coerce_numeric(df, ["trip_id", "duration_seconds", "clues_per_hour"])
-        .dropna(subset=["trip_id", "duration_seconds", "clues_per_hour"])
-        .sort_values("trip_id")
-        .copy()
-    )
-
-    d["duration_min"] = d["duration_seconds"] / 60.0
-
-    fig = make_subplots(specs=[[{"secondary_y": True}]])
-
-    duration_color = "#2563eb"      # dark blue
-    duration_avg_color = "#93c5fd"  # light blue
-    cph_color = "#f59e0b"           # dark amber
-    cph_avg_color = "#fcd34d"       # light amber
 
     fig.add_trace(
         go.Scatter(
             x=d["trip_id"],
-            y=d["duration_min"],
+            y=d["minutes_per_clue"],
             mode="lines+markers",
-            name="Duration",
-            line=dict(color=duration_color, width=3),
-            marker=dict(color=duration_color, size=7),
-            hovertemplate="Trip %{x}<br>Duration: %{y:.2f} min<extra></extra>",
-        ),
-        secondary_y=False,
+            name="Minutes per clue",
+            line=dict(color="#1d4ed8", width=3),
+            marker=dict(color="#1d4ed8", size=7),
+            hovertemplate="Trip %{x}<br>Minutes/clue: %{y:.2f}<extra></extra>",
+        )
     )
+    fig.add_trace(
+        go.Scatter(
+            x=d["trip_id"],
+            y=d["rolling_10_trip_avg_minutes_per_clue"],
+            mode="lines",
+            name="Rolling 10-trip avg",
+            line=dict(color="#60a5fa", width=2.5, dash="dash"),
+            hovertemplate="Rolling avg: %{y:.2f} min/clue<extra></extra>",
+        )
+    )
+
+    overall_avg = float(d["minutes_per_clue"].mean())
+    fig.add_trace(
+        go.Scatter(
+            x=d["trip_id"],
+            y=[overall_avg] * len(d),
+            mode="lines",
+            name="Overall avg",
+            line=dict(color="#93c5fd", width=2, dash="dot"),
+            hovertemplate="Overall avg: %{y:.2f} min/clue<extra></extra>",
+        )
+    )
+    return fig
+
+
+def build_acq_gp_per_clue_chart(df: pd.DataFrame) -> go.Figure:
+    d = df.dropna(subset=["trip_id", "gp_spent_per_clue"]).sort_values("trip_id").copy()
+    fig = go.Figure()
+    fig.update_layout(**make_line_layout("GP spent per clue by trip", "Trip #", "GP spent per clue", height=340))
+    if d.empty:
+        return fig
 
     fig.add_trace(
         go.Scatter(
             x=d["trip_id"],
-            y=d["clues_per_hour"],
+            y=d["gp_spent_per_clue"],
             mode="lines+markers",
-            name="Clues per hour",
-            line=dict(color=cph_color, width=3),
-            marker=dict(color=cph_color, size=7),
-            hovertemplate="Trip %{x}<br>Clues/hr: %{y:.2f}<extra></extra>",
-        ),
-        secondary_y=True,
-    )
-
-    if not d.empty:
-        duration_avg = float(d["duration_min"].mean())
-        cph_avg = float(d["clues_per_hour"].mean())
-
-        fig.add_trace(
-            go.Scatter(
-                x=d["trip_id"],
-                y=[duration_avg] * len(d),
-                mode="lines",
-                name="Duration average",
-                line=dict(color=duration_avg_color, width=2.5, dash="dash"),
-                hovertemplate="Duration avg: %{y:.2f} min<extra></extra>",
-            ),
-            secondary_y=False,
-        )
-
-        fig.add_trace(
-            go.Scatter(
-                x=d["trip_id"],
-                y=[cph_avg] * len(d),
-                mode="lines",
-                name="Clues per hour average",
-                line=dict(color=cph_avg_color, width=2.5, dash="dash"),
-                hovertemplate="Clues/hr avg: %{y:.2f}<extra></extra>",
-            ),
-            secondary_y=True,
-        )
-
-    fig.update_layout(
-        **make_line_layout(
-            "Duration and clues per hour by trip",
-            "Trip #",
-            "Duration (minutes)",
-            "Clues per hour",
-            height=440,
+            name="GP spent per clue",
+            line=dict(color="#b45309", width=3),
+            marker=dict(color="#b45309", size=7),
+            hovertemplate="Trip %{x}<br>GP spent/clue: %{y:,.0f}<extra></extra>",
         )
     )
-
-    fig.update_layout(
-        margin=dict(l=40, r=40, t=95, b=40),
-        title=dict(y=0.97),
-        legend=dict(
-            orientation="h",
-            yanchor="bottom",
-            y=1.10,
-            xanchor="left",
-            x=0,
-        ),
-    )
-
     return fig
 
 
-def build_completion_cph_chart(df: pd.DataFrame) -> go.Figure:
-    d = coerce_numeric(df, ["session_id", "duration_seconds", "clues_completed", "clues_per_hour"]).dropna(subset=["session_id", "duration_seconds", "clues_completed"]).sort_values("session_id").copy()
-    if "clues_per_hour" not in d.columns or d["clues_per_hour"].isna().all():
-        d["clues_per_hour"] = d["clues_completed"] / (d["duration_seconds"] / 3600.0)
-
+def build_completion_minutes_per_casket_chart(df: pd.DataFrame) -> go.Figure:
+    d = df.dropna(subset=["session_id", "minutes_per_casket"]).sort_values("session_id").copy()
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=d["session_id"], y=d["clues_per_hour"], mode="lines+markers", name="Caskets/hr"))
-    fig.update_layout(**make_line_layout("Caskets completed per hour", "Session #", "Caskets per hour", height=340))
-    return fig
-
-
-
-def build_acq_scatter(df: pd.DataFrame) -> go.Figure:
-    d = coerce_numeric(df, ["trip_id", "duration_seconds", "clues_per_hour"]).dropna(subset=["duration_seconds", "clues_per_hour"]).copy()
-    d["duration_min"] = d["duration_seconds"] / 60.0
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=d["duration_min"], y=d["clues_per_hour"], mode="markers", text=d.get("trip_id"), name="Trips"))
-    fig.update_layout(**make_line_layout("Duration vs clues per hour", "Duration (minutes)", "Clues per hour", height=340))
-    return fig
-
-
-
-def build_end_to_end_chart(acq_df: pd.DataFrame, comp_df: pd.DataFrame) -> go.Figure:
-    acq = (
-        coerce_numeric(acq_df, ["duration_seconds", "clues"])
-        .dropna(subset=["duration_seconds", "clues"])
-        .copy()
-    )
-    comp = (
-        coerce_numeric(comp_df, ["duration_seconds", "clues_completed"])
-        .dropna(subset=["duration_seconds", "clues_completed"])
-        .copy()
-    )
-
-    fig = go.Figure()
-
     fig.update_layout(
-        **make_line_layout(
-            "End-to-end caskets per hour",
-            "Date",
-            "Caskets per hour",
-            height=380,
-        )
+        **make_line_layout("Minutes per casket by session", "Session #", "Minutes per casket", height=420)
     )
-
-    if acq.empty or comp.empty:
+    if d.empty:
         return fig
 
+    fig.add_trace(
+        go.Scatter(
+            x=d["session_id"],
+            y=d["minutes_per_casket"],
+            mode="lines+markers",
+            name="Minutes per casket",
+            line=dict(color="#0f766e", width=3),
+            marker=dict(color="#0f766e", size=7),
+            hovertemplate="Session %{x}<br>Minutes/casket: %{y:.2f}<extra></extra>",
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=d["session_id"],
+            y=d["rolling_10_session_avg_minutes_per_casket"],
+            mode="lines",
+            name="Rolling 10-session avg",
+            line=dict(color="#5eead4", width=2.5, dash="dash"),
+            hovertemplate="Rolling avg: %{y:.2f} min/casket<extra></extra>",
+        )
+    )
+    return fig
+
+
+def build_completion_caskets_per_hour_chart(df: pd.DataFrame) -> go.Figure:
+    d = df.dropna(subset=["session_id", "caskets_per_hour"]).sort_values("session_id").copy()
+    fig = go.Figure()
+    fig.update_layout(**make_line_layout("Caskets per hour by session", "Session #", "Caskets per hour", height=340))
+    if d.empty:
+        return fig
+
+    fig.add_trace(
+        go.Scatter(
+            x=d["session_id"],
+            y=d["caskets_per_hour"],
+            mode="lines+markers",
+            name="Caskets per hour",
+            line=dict(color="#047857", width=3),
+            marker=dict(color="#047857", size=7),
+            hovertemplate="Session %{x}<br>Caskets/hr: %{y:.2f}<extra></extra>",
+        )
+    )
+    return fig
+
+
+def build_end_to_end_trend_df(acq_df: pd.DataFrame, comp_df: pd.DataFrame) -> pd.DataFrame:
+    acq = coerce_numeric(acq_df, ["duration_seconds", "clues"]).copy()
+    comp = coerce_numeric(comp_df, ["duration_seconds", "clues_completed"]).copy()
     acq["log_date"] = pd.to_datetime(acq["log_date"], errors="coerce")
     comp["log_date"] = pd.to_datetime(comp["log_date"], errors="coerce")
 
-    acq = acq.dropna(subset=["log_date"])
-    comp = comp.dropna(subset=["log_date"])
-
+    acq = acq.dropna(subset=["log_date", "duration_seconds", "clues"])
+    comp = comp.dropna(subset=["log_date", "duration_seconds", "clues_completed"])
     acq = acq[acq["clues"] > 0].copy()
     comp = comp[comp["clues_completed"] > 0].copy()
-
     if acq.empty or comp.empty:
-        return fig
+        return pd.DataFrame()
 
     acq["date"] = acq["log_date"].dt.date
     comp["date"] = comp["log_date"].dt.date
 
     acq_daily = (
         acq.groupby("date", as_index=False)
-        .agg(
-            acq_seconds=("duration_seconds", "sum"),
-            acq_caskets=("clues", "sum"),
-        )
+        .agg(acq_seconds=("duration_seconds", "sum"), acq_caskets=("clues", "sum"))
         .sort_values("date")
     )
-
     comp_daily = (
         comp.groupby("date", as_index=False)
-        .agg(
-            comp_seconds=("duration_seconds", "sum"),
-            comp_caskets=("clues_completed", "sum"),
-        )
+        .agg(comp_seconds=("duration_seconds", "sum"), comp_caskets=("clues_completed", "sum"))
         .sort_values("date")
     )
 
-    d = (
-        pd.merge(acq_daily, comp_daily, on="date", how="outer")
-        .sort_values("date")
-        .fillna(0)
-    )
-
+    d = pd.merge(acq_daily, comp_daily, on="date", how="outer").sort_values("date").fillna(0)
     d["date"] = pd.to_datetime(d["date"])
-
     d["cum_acq_seconds"] = d["acq_seconds"].cumsum()
     d["cum_acq_caskets"] = d["acq_caskets"].cumsum()
     d["cum_comp_seconds"] = d["comp_seconds"].cumsum()
     d["cum_comp_caskets"] = d["comp_caskets"].cumsum()
-
     d = d[(d["cum_acq_caskets"] > 0) & (d["cum_comp_caskets"] > 0)].copy()
-
     if d.empty:
-        return fig
+        return pd.DataFrame()
 
-    d["cum_acq_sec_per_casket"] = d["cum_acq_seconds"] / d["cum_acq_caskets"]
-    d["cum_comp_sec_per_casket"] = d["cum_comp_seconds"] / d["cum_comp_caskets"]
-    d["end_to_end_cph"] = 3600.0 / (
-        d["cum_acq_sec_per_casket"] + d["cum_comp_sec_per_casket"]
-    )
-
-    # Use date strings so the x-axis shows each date only once
+    d["acquire_minutes_per_casket"] = (d["cum_acq_seconds"] / d["cum_acq_caskets"]) / 60.0
+    d["complete_minutes_per_casket"] = (d["cum_comp_seconds"] / d["cum_comp_caskets"]) / 60.0
+    d["total_minutes_per_casket"] = d["acquire_minutes_per_casket"] + d["complete_minutes_per_casket"]
+    d["end_to_end_caskets_per_hour"] = d["total_minutes_per_casket"].apply(lambda x: 60.0 / x if x > 0 else 0.0)
     d["date_label"] = d["date"].dt.strftime("%Y-%m-%d")
+    return d
 
-    main_color = "#10b981"
-    avg_color = "#86efac"
+
+def build_end_to_end_stacked_time_chart(end_to_end_sum: Dict[str, Any]) -> go.Figure:
+    fig = go.Figure()
+    fig.add_trace(
+        go.Bar(
+            x=["Current full-cycle"],
+            y=[end_to_end_sum["acquire_minutes_per_casket"]],
+            name="Acquisition",
+            marker_color="#1d4ed8",
+            text=[f"{end_to_end_sum['acquire_minutes_per_casket']:.2f}"],
+            textposition="inside",
+        )
+    )
+    fig.add_trace(
+        go.Bar(
+            x=["Current full-cycle"],
+            y=[end_to_end_sum["complete_minutes_per_casket"]],
+            name="Completion",
+            marker_color="#0f766e",
+            text=[f"{end_to_end_sum['complete_minutes_per_casket']:.2f}"],
+            textposition="inside",
+        )
+    )
+    fig.update_layout(
+        barmode="stack",
+        title="Stacked time breakdown per casket",
+        height=360,
+        margin=dict(l=40, r=20, t=48, b=40),
+        xaxis=dict(title=""),
+        yaxis=dict(title="Minutes per casket"),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+    )
+    return fig
+
+
+def build_end_to_end_cph_chart(trend_df: pd.DataFrame) -> go.Figure:
+    fig = go.Figure()
+    fig.update_layout(**make_line_layout("End-to-end caskets per hour over time", "Date", "Caskets per hour", height=380))
+    if trend_df.empty:
+        return fig
 
     fig.add_trace(
         go.Scatter(
-            x=d["date_label"],
-            y=d["end_to_end_cph"],
+            x=trend_df["date_label"],
+            y=trend_df["end_to_end_caskets_per_hour"],
             mode="lines+markers",
             name="End-to-end caskets/hr",
-            line=dict(color=main_color, width=3),
-            marker=dict(color=main_color, size=7),
+            line=dict(color="#10b981", width=3),
+            marker=dict(color="#10b981", size=7),
             hovertemplate="%{x}<br>End-to-end caskets/hr: %{y:.2f}<extra></extra>",
         )
     )
-
-    avg_val = float(d["end_to_end_cph"].mean())
-    fig.add_trace(
-        go.Scatter(
-            x=d["date_label"],
-            y=[avg_val] * len(d),
-            mode="lines",
-            name="Average",
-            line=dict(color=avg_color, width=2.5, dash="dash"),
-            hovertemplate="Average: %{y:.2f}<extra></extra>",
-        )
-    )
-
     fig.update_layout(
-        margin=dict(l=40, r=40, t=70, b=40),
         xaxis=dict(
             title="Date",
             type="category",
             categoryorder="array",
-            categoryarray=d["date_label"].tolist(),
-        ),
+            categoryarray=trend_df["date_label"].tolist(),
+        )
     )
+    return fig
 
+
+def build_end_to_end_minutes_chart(trend_df: pd.DataFrame) -> go.Figure:
+    fig = go.Figure()
+    fig.update_layout(
+        **make_line_layout("Total minutes per casket over time", "Date", "Minutes per casket", height=340)
+    )
+    if trend_df.empty:
+        return fig
+
+    fig.add_trace(
+        go.Scatter(
+            x=trend_df["date_label"],
+            y=trend_df["total_minutes_per_casket"],
+            mode="lines+markers",
+            name="Total minutes per casket",
+            line=dict(color="#7c3aed", width=3),
+            marker=dict(color="#7c3aed", size=7),
+            hovertemplate="%{x}<br>Total min/casket: %{y:.2f}<extra></extra>",
+        )
+    )
+    fig.update_layout(
+        xaxis=dict(
+            title="Date",
+            type="category",
+            categoryorder="array",
+            categoryarray=trend_df["date_label"].tolist(),
+        )
+    )
     return fig
 
 
@@ -826,15 +872,17 @@ apply_pending_before_widgets()
 def summarize_acq(df: pd.DataFrame) -> Dict[str, Any]:
     if df.empty:
         return {}
-    d = coerce_numeric(df, ["clues", "duration_seconds", "gp_cost"]).copy()
+    d = coerce_numeric(df, ["clues", "duration_seconds", "gp_cost", "bloods_used"]).copy()
     total_trips = len(d)
     total_clues = int(d["clues"].fillna(0).sum())
     total_seconds = float(d["duration_seconds"].fillna(0).sum())
     total_gp = float(d["gp_cost"].fillna(0).sum())
+    total_bloods = float(d["bloods_used"].fillna(0).sum())
 
     avg_seconds_per_trip = float(d["duration_seconds"].dropna().mean()) if d["duration_seconds"].notna().any() else 0.0
     avg_seconds_per_clue = total_seconds / total_clues if total_clues > 0 else 0.0
     avg_gp_per_clue = total_gp / total_clues if total_clues > 0 else 0.0
+    avg_bloods_per_clue = total_bloods / total_clues if total_clues > 0 else 0.0
 
     total_hours = total_seconds / 3600 if total_seconds > 0 else 0.0
     clues_per_hour = total_clues / total_hours if total_hours > 0 else 0.0
@@ -850,6 +898,7 @@ def summarize_acq(df: pd.DataFrame) -> Dict[str, Any]:
         "avg_time_trip_s": avg_seconds_per_trip,
         "avg_time_clue_s": avg_seconds_per_clue,
         "avg_gp_per_clue": avg_gp_per_clue,
+        "avg_bloods_per_clue": avg_bloods_per_clue,
         "clues_per_hour": clues_per_hour,
         "gp_per_hour": gp_per_hour,
         "remaining": remaining,
@@ -886,6 +935,56 @@ def summarize_comp(df: pd.DataFrame) -> Dict[str, Any]:
     }
 
 
+def summarize_end_to_end(acq_sum: Dict[str, Any], comp_sum: Dict[str, Any]) -> Dict[str, Any]:
+    if not acq_sum or not comp_sum:
+        return {}
+
+    acquire_minutes_per_casket = acq_sum["avg_time_clue_s"] / 60.0
+    complete_minutes_per_casket = comp_sum["avg_time_casket_s"] / 60.0
+    total_minutes_per_casket = acquire_minutes_per_casket + complete_minutes_per_casket
+    end_to_end_caskets_per_hour = 60.0 / total_minutes_per_casket if total_minutes_per_casket > 0 else 0.0
+
+    acquisition_share_of_total_time = (
+        acquire_minutes_per_casket / total_minutes_per_casket if total_minutes_per_casket > 0 else 0.0
+    )
+    completion_share_of_total_time = (
+        complete_minutes_per_casket / total_minutes_per_casket if total_minutes_per_casket > 0 else 0.0
+    )
+
+    expected_net_gp_per_casket = EXPECTED_ALCH_GP_PER_CASKET - acq_sum["avg_gp_per_clue"]
+    end_to_end_gp_per_hour = expected_net_gp_per_casket * end_to_end_caskets_per_hour
+
+    remaining_caskets = max(0, GOAL_CASKETS - int(acq_sum["total_clues"]))
+    time_remaining_total_s = remaining_caskets * (acq_sum["avg_time_clue_s"] + comp_sum["avg_time_casket_s"])
+    gp_cost_remaining = acq_sum["avg_gp_per_clue"] * remaining_caskets
+    expected_alch_remaining = EXPECTED_ALCH_GP_PER_CASKET * remaining_caskets
+    expected_net_remaining = expected_net_gp_per_casket * remaining_caskets
+
+    if abs(acquire_minutes_per_casket - complete_minutes_per_casket) < 0.05:
+        bottleneck = "Balanced"
+    elif acquire_minutes_per_casket > complete_minutes_per_casket:
+        bottleneck = "Acquisition"
+    else:
+        bottleneck = "Completion"
+
+    return {
+        "acquire_minutes_per_casket": acquire_minutes_per_casket,
+        "complete_minutes_per_casket": complete_minutes_per_casket,
+        "total_minutes_per_casket": total_minutes_per_casket,
+        "end_to_end_caskets_per_hour": end_to_end_caskets_per_hour,
+        "acquisition_share_of_total_time": acquisition_share_of_total_time,
+        "completion_share_of_total_time": completion_share_of_total_time,
+        "end_to_end_gp_per_hour": end_to_end_gp_per_hour,
+        "expected_net_gp_per_casket": expected_net_gp_per_casket,
+        "bottleneck": bottleneck,
+        "time_remaining_total_s": time_remaining_total_s,
+        "gp_cost_remaining": gp_cost_remaining,
+        "expected_alch_remaining": expected_alch_remaining,
+        "expected_net_remaining": expected_net_remaining,
+        "remaining_caskets": remaining_caskets,
+    }
+
+
 # ----------------------------
 # Load data
 # ----------------------------
@@ -895,6 +994,10 @@ acq_df = load_df(ACQ_CSV, ACQ_COLS, SESSION_CACHE_KEY)
 comp_df = load_df(COMP_CSV, COMP_COLS, SESSION_CACHE_KEY)
 acq_sum = summarize_acq(acq_df)
 comp_sum = summarize_comp(comp_df)
+acq_metrics_df = prepare_acq_metrics(acq_df)
+comp_metrics_df = prepare_comp_metrics(comp_df)
+end_to_end_sum = summarize_end_to_end(acq_sum, comp_sum)
+end_to_end_trend_df = build_end_to_end_trend_df(acq_df, comp_df)
 
 
 # ----------------------------
@@ -1159,62 +1262,86 @@ with tab_acq:
     if acq_df.empty:
         st.info("No acquisition trips logged yet.")
     else:
-        total = acq_sum["total_clues"]
-        remaining = acq_sum["remaining"]
+        total = int(acq_sum["total_clues"])
+        remaining = int(acq_sum["remaining"])
+        rolling = acq_metrics_df["rolling_10_trip_avg_minutes_per_clue"].dropna()
+        rolling_latest = float(rolling.iloc[-1]) if not rolling.empty else 0.0
+        rolling_best = float(rolling.min()) if not rolling.empty else 0.0
+        median_minutes_per_clue = float(acq_metrics_df["minutes_per_clue"].dropna().median()) if acq_metrics_df["minutes_per_clue"].notna().any() else 0.0
 
-        k1, k2, k3, k4, k5 = st.columns(5)
+        st.caption(f"Target summary: {total} / {GOAL_CASKETS} clues acquired • {remaining} remaining")
+
+        k1, k2, k3, k4, k5, k6 = st.columns(6)
         k1.metric("Trips", int(acq_sum["total_trips"]))
-        k2.metric("Clues logged", int(total))
-        k3.metric("Avg time / trip", seconds_to_hhmm(acq_sum["avg_time_trip_s"]))
-        k4.metric("Avg cost / casket", human_gp(acq_sum["avg_gp_per_clue"]))
-        k5.metric("Clues / hour", f"{acq_sum['clues_per_hour']:.2f}")
+        k2.metric("Clues logged", total)
+        k3.metric("Avg time / clue", seconds_to_hhmm(acq_sum["avg_time_clue_s"]))
+        k4.metric("Clues / hour", f"{acq_sum['clues_per_hour']:.2f}")
+        k5.metric("Bloods / clue", f"{acq_sum['avg_bloods_per_clue']:.2f}")
+        k6.metric("GP spent / clue", human_gp(acq_sum["avg_gp_per_clue"]))
 
         st.divider()
 
-        m1, m2, m3, m4, m5 = st.columns(5)
-        m1.metric("Expected alch / casket", human_gp(EXPECTED_ALCH_GP_PER_CASKET))
-        net_per = EXPECTED_ALCH_GP_PER_CASKET - acq_sum["avg_gp_per_clue"]
-        m2.metric("Net gp / casket", human_gp(net_per))
-        m3.metric("GP cost remaining", human_gp(acq_sum["proj_gp_remaining"]))
-        m4.metric("Expected alch remaining", human_gp(EXPECTED_ALCH_GP_PER_CASKET * remaining))
-        m5.metric("Expected net remaining", human_gp(net_per * remaining))
-
-        st.divider()
-
-        t1, t2, t3 = st.columns(3)
-        t1.metric("Time remaining (acquire)", fmt_hours_minutes(acq_sum["proj_time_remaining_s"]))
-        t2.metric("Remaining caskets", int(remaining))
-        t3.metric("Trips remaining (rough)", math.ceil(remaining / DEFAULT_CLUES_PER_TRIP) if DEFAULT_CLUES_PER_TRIP else 0)
-
-        st.divider()
-
-        disp = acq_df.copy()
-        disp = coerce_numeric(disp, ["trip_id", "duration_seconds", "clues", "bloods_used", "deaths_used", "gp_cost", "gp_per_clue", "clues_per_hour"])
-        disp["duration"] = disp["duration_seconds"].apply(seconds_to_hhmm)
-        disp["gp_cost"] = disp["gp_cost"].round(0)
-        disp["gp_per_clue"] = disp["gp_per_clue"].round(1)
-        disp["clues_per_hour"] = disp["clues_per_hour"].round(2)
-        if "notes" not in disp.columns:
-            disp["notes"] = ""
-
-        st.subheader("Trip Log")
-        st.dataframe(
-            disp[["trip_id", "log_date", "duration", "clues", "bloods_used", "deaths_used", "gp_cost", "gp_per_clue", "clues_per_hour", "notes"]]
-            .sort_values("trip_id", ascending=False),
-            use_container_width=True,
-            height=350,
-            hide_index=True,
-        )
+        t1, t2, t3, t4, t5, t6 = st.columns(6)
+        t1.metric("Avg trip length", seconds_to_hhmm(acq_sum["avg_time_trip_s"]))
+        t2.metric("Rolling 10-trip avg time / clue", minutes_to_hhmm(rolling_latest))
+        t3.metric("Median time / clue", minutes_to_hhmm(median_minutes_per_clue))
+        t4.metric("Best rolling 10-trip time / clue", minutes_to_hhmm(rolling_best))
+        t5.metric("Time remaining (acquire)", fmt_hours_minutes(acq_sum["proj_time_remaining_s"]))
+        t6.metric("Remaining caskets", remaining)
 
         st.divider()
         st.subheader("Charts")
-        st.plotly_chart(build_acq_combined_chart(acq_df), use_container_width=True)
+        st.plotly_chart(build_acq_minutes_per_clue_chart(acq_metrics_df), use_container_width=True)
 
-        col1, col2 = st.columns(2)
-        with col1:
-            st.plotly_chart(build_acq_scatter(acq_df), use_container_width=True)
-        with col2:
-            st.plotly_chart(build_duration_histogram(acq_df, "duration_seconds", "trip_id", "Trip duration distribution"), use_container_width=True)
+        c1, c2 = st.columns(2)
+        with c1:
+            st.plotly_chart(build_acq_gp_per_clue_chart(acq_metrics_df), use_container_width=True)
+        with c2:
+            st.plotly_chart(
+                build_range_histogram(
+                    acq_metrics_df["minutes_per_clue"],
+                    "Minutes per clue distribution",
+                    "Minutes per clue range",
+                    "Trips",
+                ),
+                use_container_width=True,
+            )
+
+        st.caption("This tab focuses only on clue acquisition efficiency. Profit and full-cycle projections are shown on End-to-end.")
+
+        st.divider()
+        st.subheader("Trip Log")
+        disp = acq_metrics_df.copy()
+        disp["clues"] = disp["clues"].round(0).astype("Int64")
+        disp["bloods_used"] = disp["bloods_used"].round(0).astype("Int64")
+        disp["deaths_used"] = disp["deaths_used"].round(0).astype("Int64")
+        disp["minutes_per_clue"] = disp["minutes_per_clue"].round(2)
+        disp["clues_per_hour"] = disp["clues_per_hour"].round(2)
+        disp["bloods_per_clue"] = disp["bloods_per_clue"].round(2)
+        disp["gp_spent_per_clue"] = disp["gp_spent_per_clue"].round(1)
+        disp["gp_cost"] = disp["gp_cost"].round(0)
+        st.dataframe(
+            disp[
+                [
+                    "trip_id",
+                    "log_date",
+                    "clues",
+                    "duration",
+                    "minutes_per_clue",
+                    "clues_per_hour",
+                    "bloods_per_clue",
+                    "gp_spent_per_clue",
+                    "notes",
+                    "bloods_used",
+                    "deaths_used",
+                    "gp_cost",
+                ]
+            ].sort_values("trip_id", ascending=False),
+            use_container_width=True,
+            height=350,
+            hide_index=True,
+            column_config={"notes": st.column_config.TextColumn("notes", width="large")},
+        )
 
 
 with tab_comp:
@@ -1223,70 +1350,115 @@ with tab_comp:
     else:
         total_completed = int(comp_sum["total_completed"])
         remaining = comp_sum["remaining"]
+        rolling = comp_metrics_df["rolling_10_session_avg_minutes_per_casket"].dropna()
+        rolling_latest = float(rolling.iloc[-1]) if not rolling.empty else 0.0
+        rolling_best = float(rolling.min()) if not rolling.empty else 0.0
+        median_minutes_per_casket = float(comp_metrics_df["minutes_per_casket"].dropna().median()) if comp_metrics_df["minutes_per_casket"].notna().any() else 0.0
+        fastest_minutes_per_casket = float(comp_metrics_df["minutes_per_casket"].dropna().min()) if comp_metrics_df["minutes_per_casket"].notna().any() else 0.0
+        slowest_minutes_per_casket = float(comp_metrics_df["minutes_per_casket"].dropna().max()) if comp_metrics_df["minutes_per_casket"].notna().any() else 0.0
 
-        k1, k2, k3, k4 = st.columns(4)
+        st.caption(f"Target summary: {total_completed} / {GOAL_CASKETS} caskets completed • {int(remaining)} remaining")
+
+        k1, k2, k3, k4, k5, k6 = st.columns(6)
         k1.metric("Sessions", int(comp_sum["total_sessions"]))
         k2.metric("Caskets completed logged", total_completed)
-        k3.metric("Average time / casket", seconds_to_hhmm(comp_sum["avg_time_casket_s"]))
+        k3.metric("Avg time / casket", seconds_to_hhmm(comp_sum["avg_time_casket_s"]))
         k4.metric("Caskets / hour", f"{comp_sum['caskets_per_hour']:.2f}")
+        k5.metric("Median time / casket", minutes_to_hhmm(median_minutes_per_casket))
+        k6.metric("Rolling 10-session avg time / casket", minutes_to_hhmm(rolling_latest))
 
         st.divider()
 
-        t1, t2 = st.columns(2)
-        t1.metric("Time remaining (complete)", fmt_hours_minutes(comp_sum["proj_time_remaining_s"]))
-        t2.metric("Remaining to 650 (complete)", int(max(0, GOAL_CASKETS - total_completed)))
-
-        st.divider()
-
-        disp = comp_df.copy()
-        disp = coerce_numeric(disp, ["session_id", "duration_seconds", "clues_completed", "clues_per_hour"])
-        disp["duration"] = disp["duration_seconds"].apply(seconds_to_hhmm)
-        disp["clues_per_hour"] = disp["clues_per_hour"].round(2)
-        if "notes" not in disp.columns:
-            disp["notes"] = ""
-
-        st.subheader("Completion Log")
-        st.dataframe(
-            disp[["session_id", "log_date", "duration", "clues_completed", "clues_per_hour", "notes"]]
-            .rename(columns={"clues_completed": "caskets_completed", "clues_per_hour": "caskets_per_hour"})
-            .sort_values("session_id", ascending=False),
-            use_container_width=True,
-            height=350,
-            hide_index=True,
-        )
+        t1, t2, t3, t4, t5, t6 = st.columns(6)
+        t1.metric("Avg session length", seconds_to_hhmm(comp_sum["avg_time_session_s"]))
+        t2.metric("Best rolling 10-session time / casket", minutes_to_hhmm(rolling_best))
+        t3.metric("Fastest session time / casket", minutes_to_hhmm(fastest_minutes_per_casket))
+        t4.metric("Slowest session time / casket", minutes_to_hhmm(slowest_minutes_per_casket))
+        t5.metric("Time remaining (complete)", fmt_hours_minutes(comp_sum["proj_time_remaining_s"]))
+        t6.metric("Remaining to 650 (complete)", int(max(0, GOAL_CASKETS - total_completed)))
 
         st.divider()
         st.subheader("Charts")
+        st.plotly_chart(build_completion_minutes_per_casket_chart(comp_metrics_df), use_container_width=True)
         c1, c2 = st.columns(2)
         with c1:
-            st.plotly_chart(build_completion_cph_chart(comp_df), use_container_width=True)
+            st.plotly_chart(build_completion_caskets_per_hour_chart(comp_metrics_df), use_container_width=True)
         with c2:
-            st.plotly_chart(build_completion_histogram(comp_df), use_container_width=True)
+            st.plotly_chart(
+                build_range_histogram(
+                    comp_metrics_df["minutes_per_casket"],
+                    "Minutes per casket distribution",
+                    "Minutes per casket range",
+                    "Sessions",
+                ),
+                use_container_width=True,
+            )
+
+        st.divider()
+        st.subheader("Completion Log")
+        disp = comp_metrics_df.copy()
+        disp["caskets_completed"] = disp["clues_completed"].round(0).astype("Int64")
+        disp["minutes_per_casket"] = disp["minutes_per_casket"].round(2)
+        disp["caskets_per_hour"] = disp["caskets_per_hour"].round(2)
+        st.dataframe(
+            disp[
+                [
+                    "session_id",
+                    "log_date",
+                    "caskets_completed",
+                    "duration",
+                    "minutes_per_casket",
+                    "caskets_per_hour",
+                    "notes",
+                ]
+            ].sort_values("session_id", ascending=False),
+            use_container_width=True,
+            height=350,
+            hide_index=True,
+            column_config={"notes": st.column_config.TextColumn("notes", width="large")},
+        )
 
 
 with tab_combo:
-    st.subheader("End-to-end estimates (Acquire + Complete)")
-    if acq_df.empty or comp_df.empty:
+    st.subheader("End-to-end")
+    if acq_df.empty or comp_df.empty or not end_to_end_sum:
         st.info("Log at least one acquisition trip and one completion session to get end-to-end averages.")
     else:
-        acq_min_per = acq_sum["avg_time_clue_s"] / 60.0
-        comp_min_per = comp_sum["avg_time_casket_s"] / 60.0
-        total_min_per = acq_min_per + comp_min_per
-        total_caskets_per_hour = 60.0 / total_min_per if total_min_per > 0 else 0.0
+        st.caption(
+            f"Target summary: {int(acq_sum['total_clues'])} acquired • "
+            f"{int(comp_sum['total_completed'])} completed • "
+            f"{int(end_to_end_sum['remaining_caskets'])} remaining to {GOAL_CASKETS}"
+        )
 
-        remaining = max(0, GOAL_CASKETS - int(acq_sum["total_clues"]))
-        remaining_seconds_total = remaining * (acq_sum["avg_time_clue_s"] + comp_sum["avg_time_casket_s"])
-
-        a, b, c, d, e = st.columns(5)
-        a.metric("Acquire min / casket", f"{acq_min_per:.2f}")
-        b.metric("Complete min / casket", f"{comp_min_per:.2f}")
-        c.metric("Total min / casket", f"{total_min_per:.2f}")
-        d.metric("Caskets / hour", f"{total_caskets_per_hour:.2f}")
-        e.metric("Time remaining (total)", fmt_hours_minutes(remaining_seconds_total))
+        a1, a2, a3, a4, a5, a6 = st.columns(6)
+        a1.metric("Acquire min / casket", f"{end_to_end_sum['acquire_minutes_per_casket']:.2f}")
+        a2.metric("Complete min / casket", f"{end_to_end_sum['complete_minutes_per_casket']:.2f}")
+        a3.metric("Total min / casket", f"{end_to_end_sum['total_minutes_per_casket']:.2f}")
+        a4.metric("Caskets / hour", f"{end_to_end_sum['end_to_end_caskets_per_hour']:.2f}")
+        a5.metric("End-to-end GP / hour", human_gp(end_to_end_sum["end_to_end_gp_per_hour"]))
+        a6.metric("Expected net GP / casket", human_gp(end_to_end_sum["expected_net_gp_per_casket"]))
 
         st.divider()
-        st.plotly_chart(build_end_to_end_chart(acq_df, comp_df), use_container_width=True)
+
+        b1, b2, b3, b4 = st.columns(4)
+        b1.metric("Acquisition share of total time", f"{end_to_end_sum['acquisition_share_of_total_time'] * 100:.1f}%")
+        b2.metric("Completion share of total time", f"{end_to_end_sum['completion_share_of_total_time'] * 100:.1f}%")
+        b3.metric("Current bottleneck", end_to_end_sum["bottleneck"])
+        b4.metric("Time remaining (total)", fmt_hours_minutes(end_to_end_sum["time_remaining_total_s"]))
+
+        st.divider()
+
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("GP cost remaining", human_gp(end_to_end_sum["gp_cost_remaining"]))
+        c2.metric("Expected alch remaining", human_gp(end_to_end_sum["expected_alch_remaining"]))
+        c3.metric("Expected net remaining", human_gp(end_to_end_sum["expected_net_remaining"]))
+        c4.metric("Remaining caskets", int(end_to_end_sum["remaining_caskets"]))
+
+        st.divider()
+        st.subheader("Charts")
+        st.plotly_chart(build_end_to_end_stacked_time_chart(end_to_end_sum), use_container_width=True)
+        st.plotly_chart(build_end_to_end_cph_chart(end_to_end_trend_df), use_container_width=True)
         st.caption(
-            "This chart uses cumulative logged acquisition time per casket and cumulative logged completion time per casket, "
-            "grouped by date, to show how your observed end-to-end caskets per hour changes over time."
+            "End-to-end values combine your logged acquisition time and logged completion time to estimate your real full-cycle casket rate over time."
         )
+        st.plotly_chart(build_end_to_end_minutes_chart(end_to_end_trend_df), use_container_width=True)
