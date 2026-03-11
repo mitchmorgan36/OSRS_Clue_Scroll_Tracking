@@ -534,6 +534,11 @@ def build_acq_minutes_per_clue_chart(df: pd.DataFrame) -> go.Figure:
     d = df.dropna(subset=["trip_id", "minutes_per_clue"]).sort_values("trip_id").copy()
     fig = go.Figure()
     fig.update_layout(**make_line_layout("Minutes per clue by trip", "Trip #", "Minutes per clue", height=420))
+    fig.update_layout(
+        margin=dict(l=40, r=40, t=95, b=40),
+        title=dict(y=0.97),
+        legend=dict(orientation="h", yanchor="bottom", y=1.12, xanchor="left", x=0),
+    )
     if d.empty:
         return fig
 
@@ -599,6 +604,11 @@ def build_completion_minutes_per_casket_chart(df: pd.DataFrame) -> go.Figure:
     fig = go.Figure()
     fig.update_layout(
         **make_line_layout("Minutes per casket by session", "Session #", "Minutes per casket", height=420)
+    )
+    fig.update_layout(
+        margin=dict(l=40, r=40, t=95, b=40),
+        title=dict(y=0.97),
+        legend=dict(orientation="h", yanchor="bottom", y=1.12, xanchor="left", x=0),
     )
     if d.empty:
         return fig
@@ -717,12 +727,12 @@ def build_end_to_end_stacked_time_chart(end_to_end_sum: Dict[str, Any]) -> go.Fi
     )
     fig.update_layout(
         barmode="stack",
-        title="Stacked time breakdown per casket",
+        title=dict(text="Stacked time breakdown per casket", y=0.97),
         height=360,
-        margin=dict(l=40, r=20, t=48, b=40),
+        margin=dict(l=40, r=20, t=95, b=40),
         xaxis=dict(title=""),
         yaxis=dict(title="Minutes per casket"),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+        legend=dict(orientation="h", yanchor="bottom", y=1.12, xanchor="left", x=0),
     )
     return fig
 
@@ -1307,8 +1317,6 @@ with tab_acq:
                 use_container_width=True,
             )
 
-        st.caption("This tab focuses only on clue acquisition efficiency. Profit and full-cycle projections are shown on End-to-end.")
-
         st.divider()
         st.subheader("Trip Log")
         disp = acq_metrics_df.copy()
@@ -1458,7 +1466,4 @@ with tab_combo:
         st.subheader("Charts")
         st.plotly_chart(build_end_to_end_stacked_time_chart(end_to_end_sum), use_container_width=True)
         st.plotly_chart(build_end_to_end_cph_chart(end_to_end_trend_df), use_container_width=True)
-        st.caption(
-            "End-to-end values combine your logged acquisition time and logged completion time to estimate your real full-cycle casket rate over time."
-        )
         st.plotly_chart(build_end_to_end_minutes_chart(end_to_end_trend_df), use_container_width=True)
