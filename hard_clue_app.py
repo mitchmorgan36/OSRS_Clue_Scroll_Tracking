@@ -1,5 +1,5 @@
 import os
-from datetime import date, datetime
+from datetime import datetime
 from typing import Dict, Any
 from uuid import uuid4
 
@@ -348,6 +348,10 @@ def parse_playtime_hhmm(s: str) -> int:
 
 def now_local() -> datetime:
     return datetime.now(LOCAL_TIMEZONE)
+
+
+def today_local():
+    return now_local().date()
 
 
 
@@ -846,7 +850,7 @@ def ss_init() -> None:
     st.session_state.setdefault("comp_start_system", None)
     st.session_state.setdefault("comp_end_system", None)
 
-    st.session_state.setdefault("w_acq_date", date.today())
+    st.session_state.setdefault("w_acq_date", today_local())
     st.session_state.setdefault("w_acq_start_play", "")
     st.session_state.setdefault("w_acq_end_play", "")
     st.session_state.setdefault("w_acq_start_blood", None)
@@ -854,7 +858,7 @@ def ss_init() -> None:
     st.session_state.setdefault("w_acq_clues", DEFAULT_CLUES_PER_TRIP)
     st.session_state.setdefault("w_acq_notes", "")
 
-    st.session_state.setdefault("w_comp_date", date.today())
+    st.session_state.setdefault("w_comp_date", today_local())
     st.session_state.setdefault("w_comp_start_play", "")
     st.session_state.setdefault("w_comp_end_play", "")
     st.session_state.setdefault("w_comp_completed", 10)
