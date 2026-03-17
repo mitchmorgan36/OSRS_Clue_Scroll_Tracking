@@ -32,6 +32,37 @@ AVG_REWARD_ROLLS_PER_CASKET = 5
 EXPECTED_ALCH_GP_PER_CASKET = 54244.076180305085
 LOCAL_TIMEZONE = ZoneInfo("America/New_York")
 
+# Fixed acquisition EV rules (project-level assumptions; not user-configurable)
+JELLY_KILLS_PER_HARD_CLUE = 60
+RUNE_ARMOR_GP_PER_QUALIFYING_DROP = 28573
+RUNE_ARMOR_QUALIFYING_DROPS_PER_128_KILLS = 3
+CHAOS_RUNES_PER_DROP = 45
+CHAOS_DROP_KILLS_PER_DROP = 25.6
+CHAOS_RUNE_GP = 45
+
+RUNE_ARMOR_GP_PER_KILL = (
+    RUNE_ARMOR_GP_PER_QUALIFYING_DROP * RUNE_ARMOR_QUALIFYING_DROPS_PER_128_KILLS / 128
+)
+RUNE_ARMOR_GP_PER_CLUE = RUNE_ARMOR_GP_PER_KILL * JELLY_KILLS_PER_HARD_CLUE
+CHAOS_RUNES_PER_KILL = CHAOS_RUNES_PER_DROP / CHAOS_DROP_KILLS_PER_DROP
+CHAOS_RUNE_GP_PER_KILL = CHAOS_RUNES_PER_KILL * CHAOS_RUNE_GP
+CHAOS_RUNE_GP_PER_CLUE = CHAOS_RUNE_GP_PER_KILL * JELLY_KILLS_PER_HARD_CLUE
+COMBINED_ACQUISITION_GP_INCOME_PER_CLUE = RUNE_ARMOR_GP_PER_CLUE + CHAOS_RUNE_GP_PER_CLUE
+
+# EV validation checks:
+# - rune_armor_gp_per_kill = 28573 * 3 / 128 = 669.6796875
+# - rune_armor_gp_per_clue = 669.6796875 * 60 = 40180.78125
+# - chaos_runes_per_kill = 45 / 25.6 = 1.7578125
+# - chaos_rune_gp_per_kill = 1.7578125 * 45 = 79.1015625
+# - chaos_rune_gp_per_clue = 79.1015625 * 60 = 4746.09375
+# - combined_acquisition_gp_income_per_clue = 40180.78125 + 4746.09375 = 44926.875
+assert abs(RUNE_ARMOR_GP_PER_KILL - 669.6796875) < 1e-12
+assert abs(RUNE_ARMOR_GP_PER_CLUE - 40180.78125) < 1e-12
+assert abs(CHAOS_RUNES_PER_KILL - 1.7578125) < 1e-12
+assert abs(CHAOS_RUNE_GP_PER_KILL - 79.1015625) < 1e-12
+assert abs(CHAOS_RUNE_GP_PER_CLUE - 4746.09375) < 1e-12
+assert abs(COMBINED_ACQUISITION_GP_INCOME_PER_CLUE - 44926.875) < 1e-12
+
 # ----------------------------
 # UI tightening
 # ----------------------------
@@ -302,6 +333,12 @@ def human_gp(x: float) -> str:
     return f"{sign}{int(round(v))}"
 
 
+def human_gp_or_na(x: Any) -> str:
+    if x is None or pd.isna(x):
+        return "N/A"
+    return human_gp(float(x))
+
+
 
 def fmt_hours_minutes(total_seconds: float) -> str:
     total_seconds = int(round(float(total_seconds or 0)))
@@ -461,8 +498,32 @@ def prepare_acq_metrics(df: pd.DataFrame) -> pd.DataFrame:
     d["minutes_per_clue"] = (d["duration_seconds"] / 60.0).div(clues)
     d["bloods_per_clue"] = d["bloods_used"].div(clues)
     d["gp_spent_per_clue"] = d["gp_per_clue"].where(d["gp_per_clue"].notna(), d["gp_cost"].div(clues))
+    d["gp_cost_per_clue"] = d["gp_spent_per_clue"]
     d["clues_per_hour"] = d["clues_per_hour"].where(d["clues_per_hour"].notna(), d["clues"].div(hours))
+    d["eligible_for_acquisition_income"] = d["bloods_used"].fillna(0) > 0
+    eligible_flag = d["eligible_for_acquisition_income"].astype(float)
+
+    d["rune_armor_gp_per_kill"] = RUNE_ARMOR_GP_PER_KILL * eligible_flag
+    d["rune_armor_gp_per_clue"] = RUNE_ARMOR_GP_PER_CLUE * eligible_flag
+    d["chaos_runes_per_kill"] = CHAOS_RUNES_PER_KILL * eligible_flag
+    d["chaos_rune_gp_per_kill"] = CHAOS_RUNE_GP_PER_KILL * eligible_flag
+    d["chaos_rune_gp_per_clue"] = CHAOS_RUNE_GP_PER_CLUE * eligible_flag
+    d["combined_acquisition_gp_income_per_clue"] = d["rune_armor_gp_per_clue"] + d["chaos_rune_gp_per_clue"]
+    d["net_gp_per_clue_acquired"] = d["combined_acquisition_gp_income_per_clue"] - d["gp_cost_per_clue"]
+
+    clue_counts = d["clues"].where(d["clues"] > 0, 0).fillna(0)
+    d["expected_kills"] = clue_counts * JELLY_KILLS_PER_HARD_CLUE
+    d["expected_rune_armor_gp"] = clue_counts * d["rune_armor_gp_per_clue"]
+    d["expected_chaos_rune_gp"] = clue_counts * d["chaos_rune_gp_per_clue"]
+    d["expected_combined_acquisition_gp_income"] = (
+        d["expected_rune_armor_gp"] + d["expected_chaos_rune_gp"]
+    )
+    d["expected_net_gp_trip_acquisition"] = d["expected_combined_acquisition_gp_income"] - d["gp_cost"]
+
     d["rolling_10_trip_avg_minutes_per_clue"] = d["minutes_per_clue"].rolling(window=10, min_periods=1).mean()
+    d["rolling_10_trip_avg_gp_cost_per_clue"] = (
+        d["gp_cost_per_clue"].rolling(window=10, min_periods=1).mean()
+    )
     d["duration"] = d["duration_seconds"].apply(seconds_to_hhmm)
     d["log_date"] = d["log_date"].dt.date
     return d
@@ -583,22 +644,39 @@ def build_acq_minutes_per_clue_chart(df: pd.DataFrame) -> go.Figure:
     return fig
 
 
-def build_acq_gp_per_clue_chart(df: pd.DataFrame) -> go.Figure:
-    d = df.dropna(subset=["trip_id", "gp_spent_per_clue"]).sort_values("trip_id").copy()
+def build_acq_profitability_chart(df: pd.DataFrame) -> go.Figure:
+    d = df.dropna(subset=["trip_id"]).sort_values("trip_id").copy()
     fig = go.Figure()
-    fig.update_layout(**make_line_layout("GP spent per clue by trip", "Trip #", "GP spent per clue", height=340))
+    fig.update_layout(
+        **make_line_layout("Acquisition GP per clue profitability by trip", "Trip #", "GP per clue", height=360)
+    )
+    fig.update_layout(
+        margin=dict(l=40, r=40, t=95, b=40),
+        title=dict(y=0.97),
+        legend=dict(orientation="h", yanchor="bottom", y=1.12, xanchor="left", x=0),
+    )
     if d.empty:
         return fig
 
     fig.add_trace(
         go.Scatter(
             x=d["trip_id"],
-            y=d["gp_spent_per_clue"],
+            y=d["gp_cost_per_clue"],
             mode="lines+markers",
-            name="GP spent per clue",
+            name="GP cost per clue",
             line=dict(color="#b45309", width=3),
             marker=dict(color="#b45309", size=7),
-            hovertemplate="Trip %{x}<br>GP spent/clue: %{y:,.0f}<extra></extra>",
+            hovertemplate="Trip %{x}<br>GP cost/clue: %{y:,.0f}<extra></extra>",
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=d["trip_id"],
+            y=d["rolling_10_trip_avg_gp_cost_per_clue"],
+            mode="lines",
+            name="Rolling 10-trip avg GP cost per clue",
+            line=dict(color="#7c2d12", width=3, dash="dash"),
+            hovertemplate="Trip %{x}<br>Rolling GP cost/clue: %{y:,.0f}<extra></extra>",
         )
     )
     return fig
@@ -800,6 +878,42 @@ def build_end_to_end_minutes_chart(trend_df: pd.DataFrame) -> go.Figure:
     return fig
 
 
+def build_end_to_end_income_source_pie(end_to_end_sum: Dict[str, Any]) -> go.Figure:
+    fig = go.Figure()
+    rune_gp = float(end_to_end_sum.get("rune_armor_gp_per_clue") or 0.0)
+    chaos_gp = float(end_to_end_sum.get("chaos_rune_gp_per_clue") or 0.0)
+    alch_gp = float(end_to_end_sum.get("expected_income_per_casket_alch") or 0.0)
+
+    labels = [
+        "GP from rune armor drops",
+        "GP from chaos runes",
+        "GP from alching casket rewards",
+    ]
+    values = [max(0.0, rune_gp), max(0.0, chaos_gp), max(0.0, alch_gp)]
+    if sum(values) <= 0:
+        fig.update_layout(title="Income source share toward net GP per casket", height=360)
+        return fig
+
+    fig.add_trace(
+        go.Pie(
+            labels=labels,
+            values=values,
+            hole=0.35,
+            sort=False,
+            textinfo="percent",
+            texttemplate="%{percent:.1%}",
+            hovertemplate="%{label}<br>%{percent:.1%}<extra></extra>",
+        )
+    )
+    fig.update_layout(
+        title="Income source share toward net GP per casket",
+        height=360,
+        margin=dict(l=20, r=20, t=70, b=20),
+        legend=dict(orientation="h", yanchor="bottom", y=1.04, xanchor="left", x=0),
+    )
+    return fig
+
+
 # ----------------------------
 # Data schemas
 # ----------------------------
@@ -866,6 +980,7 @@ def ss_init() -> None:
 
     st.session_state.setdefault("pending_apply", False)
     st.session_state.setdefault("pending", {})
+    st.session_state.setdefault("goal_caskets", GOAL_CASKETS)
 
 
 
@@ -879,12 +994,13 @@ def apply_pending_before_widgets() -> None:
 
 ss_init()
 apply_pending_before_widgets()
+goal_caskets = int(st.session_state.get("goal_caskets", GOAL_CASKETS))
 
 
 # ----------------------------
 # Summaries
 # ----------------------------
-def summarize_acq(df: pd.DataFrame) -> Dict[str, Any]:
+def summarize_acq(df: pd.DataFrame, goal_caskets: int) -> Dict[str, Any]:
     if df.empty:
         return {}
     d = coerce_numeric(df, ["clues", "duration_seconds", "gp_cost", "bloods_used"]).copy()
@@ -893,6 +1009,7 @@ def summarize_acq(df: pd.DataFrame) -> Dict[str, Any]:
     total_seconds = float(d["duration_seconds"].fillna(0).sum())
     total_gp = float(d["gp_cost"].fillna(0).sum())
     total_bloods = float(d["bloods_used"].fillna(0).sum())
+    eligible_income_clues = float(d.loc[d["bloods_used"].fillna(0) > 0, "clues"].fillna(0).sum())
 
     avg_seconds_per_trip = float(d["duration_seconds"].dropna().mean()) if d["duration_seconds"].notna().any() else 0.0
     avg_seconds_per_clue = total_seconds / total_clues if total_clues > 0 else 0.0
@@ -903,9 +1020,32 @@ def summarize_acq(df: pd.DataFrame) -> Dict[str, Any]:
     clues_per_hour = total_clues / total_hours if total_hours > 0 else 0.0
     gp_per_hour = total_gp / total_hours if total_hours > 0 else 0.0
 
-    remaining = max(0, GOAL_CASKETS - total_clues)
+    gp_cost_per_clue = total_gp / total_clues if total_clues > 0 else float("nan")
+    total_expected_rune_armor_gp = eligible_income_clues * RUNE_ARMOR_GP_PER_CLUE
+    total_expected_chaos_rune_gp = eligible_income_clues * CHAOS_RUNE_GP_PER_CLUE
+    total_expected_combined_acquisition_gp_income = total_expected_rune_armor_gp + total_expected_chaos_rune_gp
+    rune_armor_gp_per_clue = total_expected_rune_armor_gp / total_clues if total_clues > 0 else float("nan")
+    chaos_rune_gp_per_clue = total_expected_chaos_rune_gp / total_clues if total_clues > 0 else float("nan")
+    combined_acquisition_gp_income_per_clue = (
+        total_expected_combined_acquisition_gp_income / total_clues if total_clues > 0 else float("nan")
+    )
+    net_gp_per_clue_acquired = (
+        combined_acquisition_gp_income_per_clue - gp_cost_per_clue if total_clues > 0 else float("nan")
+    )
+    total_expected_net_acquisition_gp = total_expected_combined_acquisition_gp_income - total_gp
+
+    remaining = max(0, goal_caskets - total_clues)
     proj_seconds_remaining = remaining * avg_seconds_per_clue
-    proj_gp_remaining = remaining * avg_gp_per_clue
+    projected_rune_armor_gp_remaining = remaining * rune_armor_gp_per_clue
+    projected_chaos_rune_gp_remaining = remaining * chaos_rune_gp_per_clue
+    projected_combined_acquisition_income_remaining = (
+        projected_rune_armor_gp_remaining + projected_chaos_rune_gp_remaining
+    )
+    projected_acquisition_cost_remaining = remaining * gp_cost_per_clue
+    projected_net_acquisition_gp_remaining = (
+        projected_combined_acquisition_income_remaining - projected_acquisition_cost_remaining
+    )
+    proj_gp_remaining = projected_acquisition_cost_remaining
 
     return {
         "total_trips": total_trips,
@@ -916,14 +1056,32 @@ def summarize_acq(df: pd.DataFrame) -> Dict[str, Any]:
         "avg_bloods_per_clue": avg_bloods_per_clue,
         "clues_per_hour": clues_per_hour,
         "gp_per_hour": gp_per_hour,
+        "eligible_income_clues": eligible_income_clues,
+        "rune_armor_gp_per_clue": rune_armor_gp_per_clue,
+        "chaos_rune_gp_per_clue": chaos_rune_gp_per_clue,
+        "combined_acquisition_gp_income_per_clue": combined_acquisition_gp_income_per_clue,
+        "gp_cost_per_clue": gp_cost_per_clue,
+        "net_gp_per_clue_acquired": net_gp_per_clue_acquired,
+        "total_expected_rune_armor_gp": total_expected_rune_armor_gp,
+        "total_expected_chaos_rune_gp": total_expected_chaos_rune_gp,
+        "total_expected_combined_acquisition_gp_income": total_expected_combined_acquisition_gp_income,
+        "total_expected_net_acquisition_gp": total_expected_net_acquisition_gp,
         "remaining": remaining,
         "proj_time_remaining_s": proj_seconds_remaining,
         "proj_gp_remaining": proj_gp_remaining,
+        "projected_rune_armor_gp_remaining": projected_rune_armor_gp_remaining,
+        "projected_chaos_rune_gp_remaining": projected_chaos_rune_gp_remaining,
+        "projected_combined_acquisition_income_remaining": projected_combined_acquisition_income_remaining,
+        "projected_acquisition_cost_remaining": projected_acquisition_cost_remaining,
+        "projected_net_acquisition_gp_remaining": projected_net_acquisition_gp_remaining,
+        "projected_net_gp_remaining_full_process": (
+            projected_net_acquisition_gp_remaining + (remaining * EXPECTED_ALCH_GP_PER_CASKET)
+        ),
     }
 
 
 
-def summarize_comp(df: pd.DataFrame) -> Dict[str, Any]:
+def summarize_comp(df: pd.DataFrame, goal_caskets: int) -> Dict[str, Any]:
     if df.empty:
         return {}
     d = coerce_numeric(df, ["clues_completed", "duration_seconds"]).copy()
@@ -936,7 +1094,7 @@ def summarize_comp(df: pd.DataFrame) -> Dict[str, Any]:
     total_hours = total_seconds / 3600 if total_seconds > 0 else 0.0
     caskets_per_hour = total_completed / total_hours if total_hours > 0 else 0.0
 
-    remaining = max(0, GOAL_CASKETS - total_completed)
+    remaining = max(0, goal_caskets - total_completed)
     proj_seconds_remaining = remaining * avg_seconds_per_casket
 
     return {
@@ -950,52 +1108,72 @@ def summarize_comp(df: pd.DataFrame) -> Dict[str, Any]:
     }
 
 
-def summarize_end_to_end(acq_sum: Dict[str, Any], comp_sum: Dict[str, Any]) -> Dict[str, Any]:
+def summarize_end_to_end(acq_sum: Dict[str, Any], comp_sum: Dict[str, Any], goal_caskets: int) -> Dict[str, Any]:
     if not acq_sum or not comp_sum:
         return {}
 
-    acquire_minutes_per_casket = acq_sum["avg_time_clue_s"] / 60.0
+    acquire_minutes_per_clue = acq_sum["avg_time_clue_s"] / 60.0
     complete_minutes_per_casket = comp_sum["avg_time_casket_s"] / 60.0
-    total_minutes_per_casket = acquire_minutes_per_casket + complete_minutes_per_casket
+    total_minutes_per_casket = acquire_minutes_per_clue + complete_minutes_per_casket
     end_to_end_caskets_per_hour = 60.0 / total_minutes_per_casket if total_minutes_per_casket > 0 else 0.0
 
     acquisition_share_of_total_time = (
-        acquire_minutes_per_casket / total_minutes_per_casket if total_minutes_per_casket > 0 else 0.0
+        acquire_minutes_per_clue / total_minutes_per_casket if total_minutes_per_casket > 0 else 0.0
     )
     completion_share_of_total_time = (
         complete_minutes_per_casket / total_minutes_per_casket if total_minutes_per_casket > 0 else 0.0
     )
 
-    expected_net_gp_per_casket = EXPECTED_ALCH_GP_PER_CASKET - acq_sum["avg_gp_per_clue"]
-    end_to_end_gp_per_hour = expected_net_gp_per_casket * end_to_end_caskets_per_hour
+    expected_income_per_clue_acquisition = acq_sum["combined_acquisition_gp_income_per_clue"]
+    expected_cost_per_clue_acquisition = acq_sum["gp_cost_per_clue"]
+    net_gp_per_clue_on_acquisition = acq_sum["net_gp_per_clue_acquired"]
+    expected_income_per_casket_alch = EXPECTED_ALCH_GP_PER_CASKET
+    net_gp_per_casket = (
+        net_gp_per_clue_on_acquisition + expected_income_per_casket_alch
+        if not pd.isna(net_gp_per_clue_on_acquisition)
+        else float("nan")
+    )
+    end_to_end_gp_per_hour = (
+        net_gp_per_casket * end_to_end_caskets_per_hour if not pd.isna(net_gp_per_casket) else float("nan")
+    )
 
-    remaining_caskets = max(0, GOAL_CASKETS - int(acq_sum["total_clues"]))
+    remaining_caskets = max(0, goal_caskets - int(acq_sum["total_clues"]))
     time_remaining_total_s = remaining_caskets * (acq_sum["avg_time_clue_s"] + comp_sum["avg_time_casket_s"])
-    gp_cost_remaining = acq_sum["avg_gp_per_clue"] * remaining_caskets
-    expected_alch_remaining = EXPECTED_ALCH_GP_PER_CASKET * remaining_caskets
-    expected_net_remaining = expected_net_gp_per_casket * remaining_caskets
+    gp_cost_remaining = acq_sum["projected_acquisition_cost_remaining"]
+    expected_alch_remaining = expected_income_per_casket_alch * remaining_caskets
+    projected_net_acquisition_gp_remaining = acq_sum["projected_net_acquisition_gp_remaining"]
+    expected_net_remaining = acq_sum["projected_net_gp_remaining_full_process"]
 
-    if abs(acquire_minutes_per_casket - complete_minutes_per_casket) < 0.05:
+    if abs(acquire_minutes_per_clue - complete_minutes_per_casket) < 0.05:
         bottleneck = "Balanced"
-    elif acquire_minutes_per_casket > complete_minutes_per_casket:
+    elif acquire_minutes_per_clue > complete_minutes_per_casket:
         bottleneck = "Acquisition"
     else:
         bottleneck = "Completion"
 
     return {
-        "acquire_minutes_per_casket": acquire_minutes_per_casket,
+        "acquire_minutes_per_clue": acquire_minutes_per_clue,
+        "acquire_minutes_per_casket": acquire_minutes_per_clue,
         "complete_minutes_per_casket": complete_minutes_per_casket,
         "total_minutes_per_casket": total_minutes_per_casket,
         "end_to_end_caskets_per_hour": end_to_end_caskets_per_hour,
         "acquisition_share_of_total_time": acquisition_share_of_total_time,
         "completion_share_of_total_time": completion_share_of_total_time,
         "end_to_end_gp_per_hour": end_to_end_gp_per_hour,
-        "expected_net_gp_per_casket": expected_net_gp_per_casket,
+        "rune_armor_gp_per_clue": acq_sum["rune_armor_gp_per_clue"],
+        "chaos_rune_gp_per_clue": acq_sum["chaos_rune_gp_per_clue"],
+        "combined_acquisition_gp_income_per_clue": expected_income_per_clue_acquisition,
+        "expected_cost_per_clue_acquisition": expected_cost_per_clue_acquisition,
+        "expected_income_per_casket_alch": expected_income_per_casket_alch,
+        "net_gp_per_clue_on_acquisition": net_gp_per_clue_on_acquisition,
+        "net_gp_per_casket": net_gp_per_casket,
+        "expected_net_gp_per_casket": net_gp_per_casket,
         "bottleneck": bottleneck,
         "time_remaining_total_s": time_remaining_total_s,
         "gp_cost_remaining": gp_cost_remaining,
         "expected_alch_remaining": expected_alch_remaining,
         "expected_net_remaining": expected_net_remaining,
+        "projected_net_acquisition_gp_remaining": projected_net_acquisition_gp_remaining,
         "remaining_caskets": remaining_caskets,
     }
 
@@ -1007,11 +1185,11 @@ SESSION_CACHE_KEY = get_session_cache_key()
 
 acq_df = load_df(ACQ_CSV, ACQ_COLS, SESSION_CACHE_KEY)
 comp_df = load_df(COMP_CSV, COMP_COLS, SESSION_CACHE_KEY)
-acq_sum = summarize_acq(acq_df)
-comp_sum = summarize_comp(comp_df)
+acq_sum = summarize_acq(acq_df, goal_caskets)
+comp_sum = summarize_comp(comp_df, goal_caskets)
 acq_metrics_df = prepare_acq_metrics(acq_df)
 comp_metrics_df = prepare_comp_metrics(comp_df)
-end_to_end_sum = summarize_end_to_end(acq_sum, comp_sum)
+end_to_end_sum = summarize_end_to_end(acq_sum, comp_sum, goal_caskets)
 end_to_end_trend_df = build_end_to_end_trend_df(acq_df, comp_df)
 
 
@@ -1019,9 +1197,12 @@ end_to_end_trend_df = build_end_to_end_trend_df(acq_df, comp_df)
 # Header
 # ----------------------------
 st.title("Hard Clue Dashboard")
+goal_input_col, _goal_spacer_col = st.columns([1, 11])
+with goal_input_col:
+    st.number_input("Goal caskets", min_value=1, step=1, key="goal_caskets")
 acq_logged = int(acq_sum.get("total_clues", 0))
-progress = min(1.0, acq_logged / GOAL_CASKETS) if GOAL_CASKETS > 0 else 0.0
-st.progress(progress, text=f"Progress to {GOAL_CASKETS} caskets: {acq_logged} / {GOAL_CASKETS} ({progress * 100:.1f}%)")
+progress = min(1.0, acq_logged / goal_caskets) if goal_caskets > 0 else 0.0
+st.progress(progress, text=f"Progress to {goal_caskets} caskets: {acq_logged} / {goal_caskets} ({progress * 100:.1f}%)")
 inject_ui_dom_script()
 
 
@@ -1274,6 +1455,25 @@ tab_acq, tab_comp, tab_combo = st.tabs(["Acquisition", "Completion", "End-to-end
 
 
 with tab_acq:
+    acq_rune_gp_per_clue = acq_sum.get("rune_armor_gp_per_clue", RUNE_ARMOR_GP_PER_CLUE) if acq_sum else RUNE_ARMOR_GP_PER_CLUE
+    acq_chaos_gp_per_clue = acq_sum.get("chaos_rune_gp_per_clue", CHAOS_RUNE_GP_PER_CLUE) if acq_sum else CHAOS_RUNE_GP_PER_CLUE
+    acq_combined_gp_income_per_clue = (
+        acq_sum.get("combined_acquisition_gp_income_per_clue", COMBINED_ACQUISITION_GP_INCOME_PER_CLUE)
+        if acq_sum
+        else COMBINED_ACQUISITION_GP_INCOME_PER_CLUE
+    )
+    acq_gp_cost_per_clue = acq_sum.get("gp_cost_per_clue") if acq_sum else float("nan")
+    acq_net_gp_per_clue = acq_sum.get("net_gp_per_clue_acquired") if acq_sum else float("nan")
+
+    p1, p2, p3, p4, p5 = st.columns(5)
+    p1.metric("GP per clue from rune armor drops", human_gp_or_na(acq_rune_gp_per_clue))
+    p2.metric("GP per clue from Chaos rune drops", human_gp_or_na(acq_chaos_gp_per_clue))
+    p3.metric("Combined acquisition GP income per clue", human_gp_or_na(acq_combined_gp_income_per_clue))
+    p4.metric("GP cost per clue", human_gp_or_na(acq_gp_cost_per_clue))
+    p5.metric("Net GP per clue acquired", human_gp_or_na(acq_net_gp_per_clue))
+
+    st.divider()
+
     if acq_df.empty:
         st.info("No acquisition trips logged yet.")
     else:
@@ -1284,7 +1484,7 @@ with tab_acq:
         rolling_best = float(rolling.min()) if not rolling.empty else 0.0
         median_minutes_per_clue = float(acq_metrics_df["minutes_per_clue"].dropna().median()) if acq_metrics_df["minutes_per_clue"].notna().any() else 0.0
 
-        st.caption(f"Target summary: {total} / {GOAL_CASKETS} clues acquired • {remaining} remaining")
+        st.caption(f"Target summary: {total} / {goal_caskets} clues acquired • {remaining} remaining")
 
         k1, k2, k3, k4, k5, k6 = st.columns(6)
         k1.metric("Trips", int(acq_sum["total_trips"]))
@@ -1292,7 +1492,7 @@ with tab_acq:
         k3.metric("Avg time / clue", seconds_to_hhmm(acq_sum["avg_time_clue_s"]))
         k4.metric("Clues / hour", f"{acq_sum['clues_per_hour']:.2f}")
         k5.metric("Bloods / clue", f"{acq_sum['avg_bloods_per_clue']:.2f}")
-        k6.metric("GP spent / clue", human_gp(acq_sum["avg_gp_per_clue"]))
+        k6.metric("GP spent / clue", human_gp_or_na(acq_sum["avg_gp_per_clue"]))
 
         st.divider()
 
@@ -1310,7 +1510,7 @@ with tab_acq:
 
         c1, c2 = st.columns(2)
         with c1:
-            st.plotly_chart(build_acq_gp_per_clue_chart(acq_metrics_df), use_container_width=True)
+            st.plotly_chart(build_acq_profitability_chart(acq_metrics_df), use_container_width=True)
         with c2:
             st.plotly_chart(
                 build_range_histogram(
@@ -1332,6 +1532,10 @@ with tab_acq:
         disp["clues_per_hour"] = disp["clues_per_hour"].round(2)
         disp["bloods_per_clue"] = disp["bloods_per_clue"].round(2)
         disp["gp_spent_per_clue"] = disp["gp_spent_per_clue"].round(1)
+        disp["expected_rune_armor_gp"] = disp["expected_rune_armor_gp"].round(0)
+        disp["expected_chaos_rune_gp"] = disp["expected_chaos_rune_gp"].round(0)
+        disp["expected_combined_acquisition_gp_income"] = disp["expected_combined_acquisition_gp_income"].round(0)
+        disp["expected_net_gp_trip_acquisition"] = disp["expected_net_gp_trip_acquisition"].round(0)
         disp["gp_cost"] = disp["gp_cost"].round(0)
         st.dataframe(
             disp[
@@ -1342,9 +1546,13 @@ with tab_acq:
                     "duration",
                     "minutes_per_clue",
                     "clues_per_hour",
+                    "notes",
                     "bloods_per_clue",
                     "gp_spent_per_clue",
-                    "notes",
+                    "expected_rune_armor_gp",
+                    "expected_chaos_rune_gp",
+                    "expected_combined_acquisition_gp_income",
+                    "expected_net_gp_trip_acquisition",
                     "bloods_used",
                     "deaths_used",
                     "gp_cost",
@@ -1370,7 +1578,7 @@ with tab_comp:
         fastest_minutes_per_casket = float(comp_metrics_df["minutes_per_casket"].dropna().min()) if comp_metrics_df["minutes_per_casket"].notna().any() else 0.0
         slowest_minutes_per_casket = float(comp_metrics_df["minutes_per_casket"].dropna().max()) if comp_metrics_df["minutes_per_casket"].notna().any() else 0.0
 
-        st.caption(f"Target summary: {total_completed} / {GOAL_CASKETS} caskets completed • {int(remaining)} remaining")
+        st.caption(f"Target summary: {total_completed} / {goal_caskets} caskets completed • {int(remaining)} remaining")
 
         k1, k2, k3, k4, k5, k6 = st.columns(6)
         k1.metric("Sessions", int(comp_sum["total_sessions"]))
@@ -1388,7 +1596,7 @@ with tab_comp:
         t3.metric("Fastest session time / casket", minutes_to_hhmm(fastest_minutes_per_casket))
         t4.metric("Slowest session time / casket", minutes_to_hhmm(slowest_minutes_per_casket))
         t5.metric("Time remaining (complete)", fmt_hours_minutes(comp_sum["proj_time_remaining_s"]))
-        t6.metric("Remaining to 650 (complete)", int(max(0, GOAL_CASKETS - total_completed)))
+        t6.metric(f"Remaining to {goal_caskets} (complete)", int(max(0, goal_caskets - total_completed)))
 
         st.divider()
         st.subheader("Charts")
@@ -1440,16 +1648,23 @@ with tab_combo:
         st.caption(
             f"Target summary: {int(acq_sum['total_clues'])} acquired • "
             f"{int(comp_sum['total_completed'])} completed • "
-            f"{int(end_to_end_sum['remaining_caskets'])} remaining to {GOAL_CASKETS}"
+            f"{int(end_to_end_sum['remaining_caskets'])} remaining to {goal_caskets}"
         )
 
-        a1, a2, a3, a4, a5, a6 = st.columns(6)
-        a1.metric("Acquire min / casket", f"{end_to_end_sum['acquire_minutes_per_casket']:.2f}")
+        a1, a2, a3, a4 = st.columns(4)
+        a1.metric("Acquire min / clue", f"{end_to_end_sum['acquire_minutes_per_clue']:.2f}")
         a2.metric("Complete min / casket", f"{end_to_end_sum['complete_minutes_per_casket']:.2f}")
         a3.metric("Total min / casket", f"{end_to_end_sum['total_minutes_per_casket']:.2f}")
         a4.metric("Caskets / hour", f"{end_to_end_sum['end_to_end_caskets_per_hour']:.2f}")
-        a5.metric("End-to-end GP / hour", human_gp(end_to_end_sum["end_to_end_gp_per_hour"]))
-        a6.metric("Expected net GP / casket", human_gp(end_to_end_sum["expected_net_gp_per_casket"]))
+
+        st.divider()
+
+        p1, p2, p3, p4, p5 = st.columns(5)
+        p1.metric("Expected income / clue (acquisition)", human_gp_or_na(end_to_end_sum["combined_acquisition_gp_income_per_clue"]))
+        p2.metric("Expected cost / clue (acquisition)", human_gp_or_na(end_to_end_sum["expected_cost_per_clue_acquisition"]))
+        p3.metric("Net expected GP / clue (acquisition)", human_gp_or_na(end_to_end_sum["net_gp_per_clue_on_acquisition"]))
+        p4.metric("Expected alch income / casket", human_gp_or_na(end_to_end_sum["expected_income_per_casket_alch"]))
+        p5.metric("Net GP / casket (full process)", human_gp_or_na(end_to_end_sum["net_gp_per_casket"]))
 
         st.divider()
 
@@ -1461,14 +1676,14 @@ with tab_combo:
 
         st.divider()
 
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("GP cost remaining", human_gp(end_to_end_sum["gp_cost_remaining"]))
-        c2.metric("Expected alch remaining", human_gp(end_to_end_sum["expected_alch_remaining"]))
-        c3.metric("Expected net remaining", human_gp(end_to_end_sum["expected_net_remaining"]))
-        c4.metric("Remaining caskets", int(end_to_end_sum["remaining_caskets"]))
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Net acquisition GP remaining", human_gp_or_na(end_to_end_sum["projected_net_acquisition_gp_remaining"]))
+        c2.metric("Net GP remaining (full process)", human_gp_or_na(end_to_end_sum["expected_net_remaining"]))
+        c3.metric("Remaining caskets", int(end_to_end_sum["remaining_caskets"]))
 
         st.divider()
         st.subheader("Charts")
+        st.plotly_chart(build_end_to_end_income_source_pie(end_to_end_sum), use_container_width=True)
         st.plotly_chart(build_end_to_end_stacked_time_chart(end_to_end_sum), use_container_width=True)
         st.plotly_chart(build_end_to_end_cph_chart(end_to_end_trend_df), use_container_width=True)
         st.plotly_chart(build_end_to_end_minutes_chart(end_to_end_trend_df), use_container_width=True)
