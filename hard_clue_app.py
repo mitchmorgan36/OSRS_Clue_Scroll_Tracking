@@ -1573,7 +1573,7 @@ with goal_start_col:
     st.button(
         "Set Progress Start Point",
         on_click=set_goal_progress_start_point,
-        use_container_width=True,
+        width="stretch",
         key="btn_goal_start_point",
     )
 
@@ -1618,9 +1618,9 @@ with st.sidebar:
 
     acq_btn_col1, acq_btn_col2 = st.columns(2)
     with acq_btn_col1:
-        st.button("Start Now", on_click=acq_start_now, use_container_width=True, key="btn_acq_start")
+        st.button("Start Now", on_click=acq_start_now, width="stretch", key="btn_acq_start")
     with acq_btn_col2:
-        st.button("End Now", on_click=acq_end_now, use_container_width=True, key="btn_acq_end")
+        st.button("End Now", on_click=acq_end_now, width="stretch", key="btn_acq_end")
 
     s0 = st.session_state.get("acq_start_system")
     e0 = st.session_state.get("acq_end_system")
@@ -1730,7 +1730,7 @@ with st.sidebar:
         st.number_input("Clues obtained", min_value=1, step=1, key="w_acq_clues")
         st.text_area("Notes", key="w_acq_notes", height=72, placeholder="")
         st.caption("Duration uses playtime if both are entered; otherwise uses system Start/End.")
-        acq_submit = st.form_submit_button("Save Acquisition Trip", type="primary", use_container_width=True)
+        acq_submit = st.form_submit_button("Save Acquisition Trip", type="primary", width="stretch")
 
     if acq_submit:
         try:
@@ -1752,9 +1752,9 @@ with st.sidebar:
 
     comp_btn_col1, comp_btn_col2 = st.columns(2)
     with comp_btn_col1:
-        st.button("Start Now", on_click=comp_start_now, use_container_width=True, key="btn_comp_start")
+        st.button("Start Now", on_click=comp_start_now, width="stretch", key="btn_comp_start")
     with comp_btn_col2:
-        st.button("End Now", on_click=comp_end_now, use_container_width=True, key="btn_comp_end")
+        st.button("End Now", on_click=comp_end_now, width="stretch", key="btn_comp_end")
 
     s1 = st.session_state.get("comp_start_system")
     e1 = st.session_state.get("comp_end_system")
@@ -1834,7 +1834,7 @@ with st.sidebar:
         st.number_input("Caskets completed", min_value=1, step=1, key="w_comp_completed")
         st.text_area("Notes", key="w_comp_notes", height=72, placeholder="")
         st.caption("Duration uses playtime if both are entered; otherwise uses system Start/End.")
-        comp_submit = st.form_submit_button("Save Completion Session", type="primary", use_container_width=True)
+        comp_submit = st.form_submit_button("Save Completion Session", type="primary", width="stretch")
 
     if comp_submit:
         try:
@@ -1906,11 +1906,11 @@ with tab_acq:
 
         st.divider()
         st.subheader("Charts")
-        st.plotly_chart(build_acq_minutes_per_clue_chart(acq_metrics_df), use_container_width=True)
+        st.plotly_chart(build_acq_minutes_per_clue_chart(acq_metrics_df), width="stretch")
 
         c1, c2 = st.columns(2)
         with c1:
-            st.plotly_chart(build_acq_profitability_chart(acq_metrics_df), use_container_width=True)
+            st.plotly_chart(build_acq_profitability_chart(acq_metrics_df), width="stretch")
         with c2:
             st.plotly_chart(
                 build_range_histogram(
@@ -1919,7 +1919,7 @@ with tab_acq:
                     "Minutes per clue range",
                     "Trips",
                 ),
-                use_container_width=True,
+                width="stretch",
             )
 
         st.divider()
@@ -1958,7 +1958,7 @@ with tab_acq:
                     "gp_cost",
                 ]
             ].sort_values("trip_id", ascending=False),
-            use_container_width=True,
+            width="stretch",
             height=350,
             hide_index=True,
             column_config={"notes": st.column_config.TextColumn("notes", width="large")},
@@ -2003,10 +2003,10 @@ with tab_comp:
 
         st.divider()
         st.subheader("Charts")
-        st.plotly_chart(build_completion_minutes_per_casket_chart(comp_metrics_df), use_container_width=True)
+        st.plotly_chart(build_completion_minutes_per_casket_chart(comp_metrics_df), width="stretch")
         c1, c2 = st.columns(2)
         with c1:
-            st.plotly_chart(build_completion_caskets_per_hour_chart(comp_metrics_df), use_container_width=True)
+            st.plotly_chart(build_completion_caskets_per_hour_chart(comp_metrics_df), width="stretch")
         with c2:
             st.plotly_chart(
                 build_range_histogram(
@@ -2015,7 +2015,7 @@ with tab_comp:
                     "Minutes per casket range",
                     "Sessions",
                 ),
-                use_container_width=True,
+                width="stretch",
             )
 
         st.divider()
@@ -2036,7 +2036,7 @@ with tab_comp:
                     "notes",
                 ]
             ].sort_values("session_id", ascending=False),
-            use_container_width=True,
+            width="stretch",
             height=350,
             hide_index=True,
             column_config={"notes": st.column_config.TextColumn("notes", width="large")},
@@ -2086,7 +2086,7 @@ with tab_combo:
 
         st.divider()
         st.subheader("Charts")
-        st.plotly_chart(build_end_to_end_income_source_pie(end_to_end_sum), use_container_width=True)
-        st.plotly_chart(build_end_to_end_stacked_time_chart(end_to_end_sum), use_container_width=True)
-        st.plotly_chart(build_end_to_end_cph_chart(end_to_end_trend_df), use_container_width=True)
-        st.plotly_chart(build_end_to_end_minutes_chart(end_to_end_trend_df), use_container_width=True)
+        st.plotly_chart(build_end_to_end_income_source_pie(end_to_end_sum), width="stretch")
+        st.plotly_chart(build_end_to_end_stacked_time_chart(end_to_end_sum), width="stretch")
+        st.plotly_chart(build_end_to_end_cph_chart(end_to_end_trend_df), width="stretch")
+        st.plotly_chart(build_end_to_end_minutes_chart(end_to_end_trend_df), width="stretch")
