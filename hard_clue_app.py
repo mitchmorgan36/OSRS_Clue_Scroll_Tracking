@@ -1,6 +1,8 @@
 import os
+import inspect
 from datetime import datetime
 from typing import Dict, Any
+from urllib.parse import quote
 from uuid import uuid4
 
 from zoneinfo import ZoneInfo
@@ -8,7 +10,6 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
-import streamlit.components.v1 as components
 
 import google_sheets_backend as gsb
 
@@ -208,11 +209,60 @@ div[data-testid="column"] div[data-testid="metric-container"] {
 # ----------------------------
 # UI DOM polish
 # ----------------------------
+def _render_inline_html(html: str, *, height: int = 0) -> None:
+    iframe_fn = getattr(st, "iframe", None)
+    if callable(iframe_fn):
+        iframe_params = inspect.signature(iframe_fn).parameters
+        iframe_kwargs: dict[str, Any] = {}
+        if "height" in iframe_params:
+            iframe_kwargs["height"] = height
+        if "width" in iframe_params:
+            iframe_kwargs["width"] = "stretch"
+        if "scrolling" in iframe_params:
+            iframe_kwargs["scrolling"] = False
+
+        if "srcdoc" in iframe_params:
+            iframe_fn(srcdoc=html, **iframe_kwargs)
+            return
+        if "html" in iframe_params:
+            iframe_fn(html=html, **iframe_kwargs)
+            return
+        if "body" in iframe_params:
+            iframe_fn(body=html, **iframe_kwargs)
+            return
+        if "src" in iframe_params:
+            iframe_fn(src=f"data:text/html;charset=utf-8,{quote(html)}", **iframe_kwargs)
+            return
+        if iframe_params:
+            iframe_fn(f"data:text/html;charset=utf-8,{quote(html)}", **iframe_kwargs)
+            return
+
+    html_fn = getattr(st, "html", None)
+    if callable(html_fn):
+        html_params = inspect.signature(html_fn).parameters
+        html_kwargs: dict[str, Any] = {}
+        if "width" in html_params:
+            html_kwargs["width"] = "stretch"
+        if "unsafe_allow_javascript" in html_params:
+            html_kwargs["unsafe_allow_javascript"] = True
+        html_fn(html, **html_kwargs)
+        return
+
+    # Legacy fallback for older Streamlit versions.
+    from streamlit.components.v1 import html as legacy_html
+    legacy_html(html, height=height)
+
+
 def inject_ui_dom_script() -> None:
-    components.html(
+    _render_inline_html(
         """
         <script>
-        const rootWin = window.parent;
+        const rootWin = (() => {
+          try {
+            if (window.parent && window.parent.document) return window.parent;
+          } catch (_err) {}
+          return window;
+        })();
         const rootDoc = rootWin.document;
         const OVERFLOW_TOOLTIP_DELAY_MS = 50;
         let overflowTooltipEl = null;
@@ -561,7 +611,7 @@ def inject_ui_dom_script() -> None:
         observer.observe(rootDoc.body, { childList: true, subtree: true });
         </script>
         """,
-        height=0,
+        height=0
     )
 
 
