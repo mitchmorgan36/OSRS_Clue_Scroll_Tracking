@@ -5,3 +5,4 @@ OSRS Hard Clue Tracker - Google Sheets.webloc
 __pycache__/
 *.pyc
 client_secret_402365624372-m5g8o0tuu739jmdqubf0ieul43ldcg68.apps.googleusercontent.com.json
+data/hard_clue_goal_progress_state.json

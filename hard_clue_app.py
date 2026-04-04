@@ -1,3 +1,4 @@
+import json
 import os
 from datetime import datetime
 from typing import Dict, Any
@@ -20,6 +21,7 @@ st.set_page_config(page_title="Hard Clue Dashboard", layout="wide")
 DATA_DIR = "data"
 ACQ_CSV = os.path.join(DATA_DIR, "hard_clue_trips.csv")
 COMP_CSV = os.path.join(DATA_DIR, "hard_clue_completion.csv")
+GOAL_PROGRESS_STATE_JSON = os.path.join(DATA_DIR, "hard_clue_goal_progress_state.json")
 
 GOAL_CASKETS = 650
 DEFAULT_CLUES_PER_TRIP = 5
@@ -314,6 +316,55 @@ def inject_ui_dom_script() -> None:
 def ensure_data_dir() -> None:
     os.makedirs(DATA_DIR, exist_ok=True)
 
+
+
+def clamp_nonnegative_int(value: Any, default: int = 0) -> int:
+    try:
+        out = int(value)
+    except (TypeError, ValueError):
+        out = default
+    return max(0, out)
+
+
+def parse_iso_datetime(raw: Any) -> datetime | None:
+    if raw in (None, ""):
+        return None
+    try:
+        dt = datetime.fromisoformat(str(raw))
+    except (TypeError, ValueError):
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=LOCAL_TIMEZONE)
+    return dt.astimezone(LOCAL_TIMEZONE)
+
+
+def load_goal_progress_state() -> Dict[str, Any]:
+    ensure_data_dir()
+    if not os.path.exists(GOAL_PROGRESS_STATE_JSON):
+        return {}
+    try:
+        with open(GOAL_PROGRESS_STATE_JSON, "r", encoding="utf-8") as fh:
+            payload = json.load(fh)
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    return {
+        "start_acq_total": clamp_nonnegative_int(payload.get("start_acq_total"), default=0),
+        "start_comp_total": clamp_nonnegative_int(payload.get("start_comp_total"), default=0),
+        "start_set_at": payload.get("start_set_at") or None,
+    }
+
+
+def save_goal_progress_state(start_acq_total: int, start_comp_total: int, start_set_at: datetime | None) -> None:
+    ensure_data_dir()
+    payload = {
+        "start_acq_total": clamp_nonnegative_int(start_acq_total, default=0),
+        "start_comp_total": clamp_nonnegative_int(start_comp_total, default=0),
+        "start_set_at": start_set_at.isoformat() if start_set_at else None,
+    }
+    with open(GOAL_PROGRESS_STATE_JSON, "w", encoding="utf-8") as fh:
+        json.dump(payload, fh, indent=2)
 
 
 def human_gp(x: float) -> str:
@@ -959,6 +1010,8 @@ COMP_COLS = (
 # Session State
 # ----------------------------
 def ss_init() -> None:
+    goal_progress_state = load_goal_progress_state()
+
     st.session_state.setdefault("acq_start_system", None)
     st.session_state.setdefault("acq_end_system", None)
     st.session_state.setdefault("comp_start_system", None)
@@ -981,6 +1034,9 @@ def ss_init() -> None:
     st.session_state.setdefault("pending_apply", False)
     st.session_state.setdefault("pending", {})
     st.session_state.setdefault("goal_caskets", GOAL_CASKETS)
+    st.session_state.setdefault("goal_progress_start_acq_total", goal_progress_state.get("start_acq_total"))
+    st.session_state.setdefault("goal_progress_start_comp_total", goal_progress_state.get("start_comp_total"))
+    st.session_state.setdefault("goal_progress_start_set_at", goal_progress_state.get("start_set_at"))
 
 
 
@@ -1192,17 +1248,102 @@ comp_metrics_df = prepare_comp_metrics(comp_df)
 end_to_end_sum = summarize_end_to_end(acq_sum, comp_sum, goal_caskets)
 end_to_end_trend_df = build_end_to_end_trend_df(acq_df, comp_df)
 
+running_acq_total = int(acq_sum.get("total_clues", 0))
+running_comp_total = int(comp_sum.get("total_completed", 0))
+
+
+def normalized_progress_baseline(raw_value: Any, running_total: int) -> int:
+    baseline = clamp_nonnegative_int(raw_value, default=0)
+    return min(running_total, baseline)
+
+
+progress_start_acq_total = normalized_progress_baseline(
+    st.session_state.get("goal_progress_start_acq_total"),
+    running_acq_total,
+)
+progress_start_comp_total = normalized_progress_baseline(
+    st.session_state.get("goal_progress_start_comp_total"),
+    running_comp_total,
+)
+progress_start_set_at = parse_iso_datetime(st.session_state.get("goal_progress_start_set_at"))
+
+st.session_state["goal_progress_start_acq_total"] = progress_start_acq_total
+st.session_state["goal_progress_start_comp_total"] = progress_start_comp_total
+st.session_state["goal_progress_start_set_at"] = progress_start_set_at.isoformat() if progress_start_set_at else None
+
+acq_since_progress_start = max(0, running_acq_total - progress_start_acq_total)
+comp_since_progress_start = max(0, running_comp_total - progress_start_comp_total)
+
+goal_progress_completed = comp_since_progress_start
+goal_progress_remaining = max(0, goal_caskets - goal_progress_completed)
+goal_progress = min(1.0, goal_progress_completed / goal_caskets) if goal_caskets > 0 else 0.0
+
+acq_goal_remaining = max(0, goal_caskets - acq_since_progress_start)
+comp_goal_remaining = max(0, goal_caskets - comp_since_progress_start)
+acq_goal_time_remaining_s = acq_goal_remaining * float(acq_sum.get("avg_time_clue_s", 0.0) or 0.0)
+comp_goal_time_remaining_s = comp_goal_remaining * float(comp_sum.get("avg_time_casket_s", 0.0) or 0.0)
+combo_goal_remaining = comp_goal_remaining
+combo_goal_time_remaining_s = combo_goal_remaining * (
+    float(acq_sum.get("avg_time_clue_s", 0.0) or 0.0)
+    + float(comp_sum.get("avg_time_casket_s", 0.0) or 0.0)
+)
+combo_projected_net_acquisition_gp_remaining = float("nan")
+combo_expected_net_remaining = float("nan")
+if acq_sum:
+    net_gp_per_clue_on_acquisition = acq_sum.get("net_gp_per_clue_acquired", float("nan"))
+    if not pd.isna(net_gp_per_clue_on_acquisition):
+        combo_projected_net_acquisition_gp_remaining = float(net_gp_per_clue_on_acquisition) * combo_goal_remaining
+        combo_expected_net_remaining = (
+            combo_projected_net_acquisition_gp_remaining
+            + (combo_goal_remaining * EXPECTED_ALCH_GP_PER_CASKET)
+        )
+
+
+def set_goal_progress_start_point() -> None:
+    start_set_at = now_local()
+    st.session_state["goal_progress_start_acq_total"] = running_acq_total
+    st.session_state["goal_progress_start_comp_total"] = running_comp_total
+    st.session_state["goal_progress_start_set_at"] = start_set_at.isoformat()
+    save_goal_progress_state(
+        start_acq_total=running_acq_total,
+        start_comp_total=running_comp_total,
+        start_set_at=start_set_at,
+    )
+
 
 # ----------------------------
 # Header
 # ----------------------------
 st.title("Hard Clue Dashboard")
-goal_input_col, _goal_spacer_col = st.columns([1, 11])
+goal_input_col, goal_start_col, _goal_spacer_col = st.columns([1.3, 1.7, 9.0])
 with goal_input_col:
     st.number_input("Goal caskets", min_value=1, step=1, key="goal_caskets")
-acq_logged = int(acq_sum.get("total_clues", 0))
-progress = min(1.0, acq_logged / goal_caskets) if goal_caskets > 0 else 0.0
-st.progress(progress, text=f"Progress to {goal_caskets} caskets: {acq_logged} / {goal_caskets} ({progress * 100:.1f}%)")
+with goal_start_col:
+    st.button("Set Progress Start Point", on_click=set_goal_progress_start_point, use_container_width=True)
+
+totals_col1, totals_col2, _totals_spacer_col = st.columns([1.8, 1.8, 8.4])
+totals_col1.metric("Total clues acquired tracked", running_acq_total)
+totals_col2.metric("Total caskets completed tracked", running_comp_total)
+
+if progress_start_set_at is None:
+    st.caption("Progress start point: not set yet (currently counting from all-time totals).")
+else:
+    st.caption(
+        "Progress start point: "
+        f"{progress_start_set_at.strftime('%Y-%m-%d %H:%M:%S %Z')} "
+        f"(baseline: {progress_start_acq_total} acquired, {progress_start_comp_total} completed)"
+    )
+
+st.caption(
+    f"Since start point: {acq_since_progress_start} clues acquired • {comp_since_progress_start} caskets completed"
+)
+st.progress(
+    goal_progress,
+    text=(
+        f"Goal progress to {goal_caskets} caskets (completed since start): "
+        f"{goal_progress_completed} / {goal_caskets} ({goal_progress * 100:.1f}%) • {goal_progress_remaining} remaining"
+    ),
+)
 inject_ui_dom_script()
 
 
@@ -1478,13 +1619,16 @@ with tab_acq:
         st.info("No acquisition trips logged yet.")
     else:
         total = int(acq_sum["total_clues"])
-        remaining = int(acq_sum["remaining"])
+        remaining = int(acq_goal_remaining)
         rolling = acq_metrics_df["rolling_10_trip_avg_minutes_per_clue"].dropna()
         rolling_latest = float(rolling.iloc[-1]) if not rolling.empty else 0.0
         rolling_best = float(rolling.min()) if not rolling.empty else 0.0
         median_minutes_per_clue = float(acq_metrics_df["minutes_per_clue"].dropna().median()) if acq_metrics_df["minutes_per_clue"].notna().any() else 0.0
 
-        st.caption(f"Target summary: {total} / {goal_caskets} clues acquired • {remaining} remaining")
+        st.caption(
+            f"Goal window: {acq_since_progress_start} / {goal_caskets} clues acquired since start point • "
+            f"{remaining} remaining (lifetime total: {total})"
+        )
 
         k1, k2, k3, k4, k5, k6 = st.columns(6)
         k1.metric("Trips", int(acq_sum["total_trips"]))
@@ -1501,7 +1645,7 @@ with tab_acq:
         t2.metric("Rolling 10-trip avg time / clue", minutes_to_hhmm(rolling_latest))
         t3.metric("Median time / clue", minutes_to_hhmm(median_minutes_per_clue))
         t4.metric("Best rolling 10-trip time / clue", minutes_to_hhmm(rolling_best))
-        t5.metric("Time remaining (acquire)", fmt_hours_minutes(acq_sum["proj_time_remaining_s"]))
+        t5.metric("Time remaining (acquire)", fmt_hours_minutes(acq_goal_time_remaining_s))
         t6.metric("Remaining caskets", remaining)
 
         st.divider()
@@ -1570,7 +1714,7 @@ with tab_comp:
         st.info("No completion sessions logged yet.")
     else:
         total_completed = int(comp_sum["total_completed"])
-        remaining = comp_sum["remaining"]
+        remaining = int(comp_goal_remaining)
         rolling = comp_metrics_df["rolling_10_session_avg_minutes_per_casket"].dropna()
         rolling_latest = float(rolling.iloc[-1]) if not rolling.empty else 0.0
         rolling_best = float(rolling.min()) if not rolling.empty else 0.0
@@ -1578,7 +1722,10 @@ with tab_comp:
         fastest_minutes_per_casket = float(comp_metrics_df["minutes_per_casket"].dropna().min()) if comp_metrics_df["minutes_per_casket"].notna().any() else 0.0
         slowest_minutes_per_casket = float(comp_metrics_df["minutes_per_casket"].dropna().max()) if comp_metrics_df["minutes_per_casket"].notna().any() else 0.0
 
-        st.caption(f"Target summary: {total_completed} / {goal_caskets} caskets completed • {int(remaining)} remaining")
+        st.caption(
+            f"Goal window: {comp_since_progress_start} / {goal_caskets} caskets completed since start point • "
+            f"{remaining} remaining (lifetime total: {total_completed})"
+        )
 
         k1, k2, k3, k4, k5, k6 = st.columns(6)
         k1.metric("Sessions", int(comp_sum["total_sessions"]))
@@ -1595,8 +1742,8 @@ with tab_comp:
         t2.metric("Best rolling 10-session time / casket", minutes_to_hhmm(rolling_best))
         t3.metric("Fastest session time / casket", minutes_to_hhmm(fastest_minutes_per_casket))
         t4.metric("Slowest session time / casket", minutes_to_hhmm(slowest_minutes_per_casket))
-        t5.metric("Time remaining (complete)", fmt_hours_minutes(comp_sum["proj_time_remaining_s"]))
-        t6.metric(f"Remaining to {goal_caskets} (complete)", int(max(0, goal_caskets - total_completed)))
+        t5.metric("Time remaining (complete)", fmt_hours_minutes(comp_goal_time_remaining_s))
+        t6.metric(f"Remaining to {goal_caskets} (complete)", remaining)
 
         st.divider()
         st.subheader("Charts")
@@ -1646,9 +1793,9 @@ with tab_combo:
         st.info("Log at least one acquisition trip and one completion session to get end-to-end averages.")
     else:
         st.caption(
-            f"Target summary: {int(acq_sum['total_clues'])} acquired • "
-            f"{int(comp_sum['total_completed'])} completed • "
-            f"{int(end_to_end_sum['remaining_caskets'])} remaining to {goal_caskets}"
+            f"Goal window: {acq_since_progress_start} acquired • "
+            f"{comp_since_progress_start} completed since start point • "
+            f"{int(combo_goal_remaining)} remaining to {goal_caskets}"
         )
 
         a1, a2, a3, a4 = st.columns(4)
@@ -1672,14 +1819,14 @@ with tab_combo:
         b1.metric("Acquisition share of total time", f"{end_to_end_sum['acquisition_share_of_total_time'] * 100:.1f}%")
         b2.metric("Completion share of total time", f"{end_to_end_sum['completion_share_of_total_time'] * 100:.1f}%")
         b3.metric("Current bottleneck", end_to_end_sum["bottleneck"])
-        b4.metric("Time remaining (total)", fmt_hours_minutes(end_to_end_sum["time_remaining_total_s"]))
+        b4.metric("Time remaining (total)", fmt_hours_minutes(combo_goal_time_remaining_s))
 
         st.divider()
 
         c1, c2, c3 = st.columns(3)
-        c1.metric("Net acquisition GP remaining", human_gp_or_na(end_to_end_sum["projected_net_acquisition_gp_remaining"]))
-        c2.metric("Net GP remaining (full process)", human_gp_or_na(end_to_end_sum["expected_net_remaining"]))
-        c3.metric("Remaining caskets", int(end_to_end_sum["remaining_caskets"]))
+        c1.metric("Net acquisition GP remaining", human_gp_or_na(combo_projected_net_acquisition_gp_remaining))
+        c2.metric("Net GP remaining (full process)", human_gp_or_na(combo_expected_net_remaining))
+        c3.metric("Remaining caskets", int(combo_goal_remaining))
 
         st.divider()
         st.subheader("Charts")
