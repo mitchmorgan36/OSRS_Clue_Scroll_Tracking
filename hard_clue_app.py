@@ -24,6 +24,8 @@ COMP_CSV = os.path.join(DATA_DIR, "hard_clue_completion.csv")
 
 GOAL_CASKETS = 650
 DEFAULT_CLUES_PER_TRIP = 5
+GOAL_HEADER_CONTROL_WIDTH_PX = 200
+GOAL_HEADER_CONTROLS_CONTAINER_WIDTH_PX = (GOAL_HEADER_CONTROL_WIDTH_PX * 2) + 24
 
 GOAL_PROGRESS_STATE_COLS = (
     "start_acq_total",
@@ -88,6 +90,7 @@ st.markdown(
   --start-hover-border: #256347;
   --end-hover-bg: #b4534d;
   --end-hover-border: #8f413b;
+  --goal-header-control-width: 300px;
 }
 
 section[data-testid="stSidebar"] > div {
@@ -175,8 +178,25 @@ div[data-testid="column"] div[data-testid="metric-container"] {
   margin-bottom: 0 !important;
 }
 
-.goal-start-legacy-spacer {
-  height: 0.62rem;
+.goal-caskets-label {
+  white-space: nowrap !important;
+  display: inline-block;
+  margin: 0 0 0.24rem 0;
+}
+.goal-caskets-label--spacer {
+  visibility: hidden;
+  user-select: none;
+}
+.goal-caskets-label p {
+  margin: 0 !important;
+  overflow-wrap: normal !important;
+  word-break: keep-all !important;
+}
+div.st-key-btn_goal_start_point button {
+  white-space: normal !important;
+  overflow-wrap: anywhere !important;
+  word-break: normal !important;
+  text-overflow: clip !important;
 }
 
 #ui-overflow-tooltip-float {
@@ -213,13 +233,6 @@ div[data-testid="column"] div[data-testid="metric-container"] {
 # ----------------------------
 # UI DOM polish
 # ----------------------------
-HAS_COLUMNS_VERTICAL_ALIGNMENT = "vertical_alignment" in inspect.signature(st.columns).parameters
-
-
-def aligned_columns(spec: list[float], vertical_alignment: str = "top"):
-    if HAS_COLUMNS_VERTICAL_ALIGNMENT:
-        return st.columns(spec, vertical_alignment=vertical_alignment)
-    return st.columns(spec)
 
 
 def _render_inline_html(html: str, *, height: int = 0) -> None:
@@ -1565,23 +1578,35 @@ def set_goal_progress_start_point() -> None:
 # Header
 # ----------------------------
 st.title("Hard Clue Dashboard")
-goal_input_col, goal_start_col, _goal_spacer_col = aligned_columns(
-    [1.3, 2.4, 8.3],
-    vertical_alignment="center",
-)
-with goal_input_col:
-    st.number_input("Goal caskets", min_value=1, step=1, key="goal_caskets")
-with goal_start_col:
-    if not HAS_COLUMNS_VERTICAL_ALIGNMENT:
-        st.markdown('<div class="goal-start-legacy-spacer"></div>', unsafe_allow_html=True)
-    st.button(
-        "Set Progress Start Point",
-        on_click=set_goal_progress_start_point,
-        width="content",
-        key="btn_goal_start_point",
-    )
+goal_controls_kwargs: dict[str, Any] = {"key": "goal_header_controls"}
+if "width" in inspect.signature(st.container).parameters:
+    goal_controls_kwargs["width"] = GOAL_HEADER_CONTROLS_CONTAINER_WIDTH_PX
+goal_controls = st.container(**goal_controls_kwargs)
+with goal_controls:
+    goal_input_col, goal_start_col = st.columns(2, gap="small")
+    with goal_input_col:
+        st.markdown('<div class="goal-caskets-label">Goal caskets</div>', unsafe_allow_html=True)
+        st.number_input(
+            "Goal caskets",
+            min_value=1,
+            step=1,
+            key="goal_caskets",
+            label_visibility="collapsed",
+            width="stretch",
+        )
+    with goal_start_col:
+        st.markdown(
+            '<div class="goal-caskets-label goal-caskets-label--spacer" aria-hidden="true">Goal caskets</div>',
+            unsafe_allow_html=True,
+        )
+        st.button(
+            "Set Progress Start Point",
+            on_click=set_goal_progress_start_point,
+            width="stretch",
+            key="btn_goal_start_point",
+        )
 
-totals_col1, totals_col2, _totals_spacer_col = st.columns([1.8, 1.8, 8.4])
+totals_col1, totals_col2, _totals_spacer_col = st.columns([2.0, 2.0, 4.0])
 totals_col1.metric("Total clues acquired tracked", running_acq_total)
 totals_col2.metric("Total caskets completed tracked", running_comp_total)
 
