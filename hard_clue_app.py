@@ -215,7 +215,7 @@ def _render_inline_html(html: str, *, height: int = 0) -> None:
         iframe_params = inspect.signature(iframe_fn).parameters
         iframe_kwargs: dict[str, Any] = {}
         if "height" in iframe_params:
-            iframe_kwargs["height"] = height
+            iframe_kwargs["height"] = height if height > 0 else "content"
         if "width" in iframe_params:
             iframe_kwargs["width"] = "stretch"
         if "scrolling" in iframe_params:
@@ -250,7 +250,7 @@ def _render_inline_html(html: str, *, height: int = 0) -> None:
 
     # Legacy fallback for older Streamlit versions.
     from streamlit.components.v1 import html as legacy_html
-    legacy_html(html, height=height)
+    legacy_html(html, height=max(1, height))
 
 
 def inject_ui_dom_script() -> None:
