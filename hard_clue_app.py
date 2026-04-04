@@ -209,6 +209,13 @@ div[data-testid="column"] div[data-testid="metric-container"] {
 # ----------------------------
 # UI DOM polish
 # ----------------------------
+def aligned_columns(spec: list[float], vertical_alignment: str = "top"):
+    columns_params = inspect.signature(st.columns).parameters
+    if "vertical_alignment" in columns_params:
+        return st.columns(spec, vertical_alignment=vertical_alignment)
+    return st.columns(spec)
+
+
 def _render_inline_html(html: str, *, height: int = 0) -> None:
     html_fn = getattr(st, "html", None)
     if callable(html_fn):
@@ -363,79 +370,6 @@ def inject_ui_dom_script() -> None:
               styleButton(button, { hoverBg: '#b4534d', hoverBorder: '#8f413b', hoverTextColor: '#f8fafc' });
             }
           });
-        }
-
-        function alignGoalStartButton() {
-          const normalizeLabel = (value) => (value || '').replace(/\\s+/g, ' ').trim();
-          const buttons = Array.from(rootDoc.querySelectorAll('button'));
-          const target = buttons.find(
-            (button) => normalizeLabel(button.innerText || button.textContent || '') === 'Set Progress Start Point'
-          );
-          if (!target) return;
-          const buttonWrap = target.closest('div[data-testid="stButton"]');
-          if (!buttonWrap) return;
-          const buttonElement = buttonWrap.closest('div[data-testid="stElementContainer"]');
-
-          const goalInput = rootDoc.querySelector('input[aria-label="Goal caskets"]');
-          const goalInputWrap = goalInput
-            ? goalInput.closest('[data-testid="stNumberInputContainer"]')
-            : null;
-          if (!goalInputWrap) return;
-
-          const goalCol = goalInputWrap.closest('div[data-testid="column"]');
-          const buttonCol = buttonWrap.closest('div[data-testid="column"]');
-          const controlRow = goalCol && goalCol.parentElement && goalCol.parentElement.contains(buttonCol)
-            ? goalCol.parentElement
-            : null;
-
-          const totalCluesMetric = Array.from(rootDoc.querySelectorAll('div[data-testid="metric-container"]'))
-            .find((el) => ((el.textContent || '').includes('Total clues acquired tracked')));
-          const totalsRow = totalCluesMetric
-            ? totalCluesMetric.closest('div[data-testid="stHorizontalBlock"]')
-            : null;
-
-          buttonWrap.style.transform = 'translateY(0px)';
-          buttonWrap.style.marginTop = '';
-          if (buttonElement) {
-            buttonElement.style.removeProperty('margin-top');
-            buttonElement.style.removeProperty('margin-bottom');
-          }
-          if (controlRow) {
-            controlRow.style.columnGap = '';
-            controlRow.style.marginBottom = '';
-            controlRow.style.removeProperty('row-gap');
-          }
-          if (goalCol) goalCol.style.marginBottom = '';
-          if (buttonCol) buttonCol.style.marginBottom = '';
-          if (totalsRow) totalsRow.style.marginTop = '';
-
-          const goalRect = goalInputWrap.getBoundingClientRect();
-          const buttonRect = buttonWrap.getBoundingClientRect();
-          const controlsStacked = buttonRect.top > (goalRect.bottom + 4);
-
-          if (controlsStacked) {
-            if (buttonElement) buttonElement.style.setProperty('margin-top', '0.42rem', 'important');
-            if (controlRow) controlRow.style.setProperty('row-gap', '0.42rem', 'important');
-            return;
-          }
-
-          const inputCenter = goalRect.top + (goalRect.height / 2);
-          const buttonCenter = buttonRect.top + (buttonRect.height / 2);
-          const delta = inputCenter - buttonCenter;
-          const clamped = Math.max(-18, Math.min(42, delta));
-          buttonWrap.style.transform = `translateY(${clamped}px)`;
-
-          const buttonWrapped = buttonRect.height > 58;
-          const compactHeaderMode = buttonWrapped || rootWin.innerWidth < 1080;
-          if (!compactHeaderMode) return;
-
-          if (controlRow) {
-            controlRow.style.columnGap = '0.55rem';
-            controlRow.style.marginBottom = '-0.22rem';
-          }
-          if (goalCol) goalCol.style.marginBottom = '-0.2rem';
-          if (buttonCol) buttonCol.style.marginBottom = '-0.2rem';
-          if (totalsRow) totalsRow.style.marginTop = '-0.45rem';
         }
 
         function removeAuxiliaryInputTabStops() {
@@ -599,7 +533,6 @@ def inject_ui_dom_script() -> None:
         function run() {
           hidePressEnterHints();
           applyButtonStyles();
-          alignGoalStartButton();
           removeAuxiliaryInputTabStops();
           applyOverflowTooltips();
           bindOverflowTooltipHover();
@@ -1626,14 +1559,17 @@ def set_goal_progress_start_point() -> None:
 # Header
 # ----------------------------
 st.title("Hard Clue Dashboard")
-goal_input_col, goal_start_col, _goal_spacer_col = st.columns([1.3, 1.7, 9.0])
+goal_input_col, goal_start_col, _goal_spacer_col = aligned_columns(
+    [1.3, 2.4, 8.3],
+    vertical_alignment="bottom",
+)
 with goal_input_col:
     st.number_input("Goal caskets", min_value=1, step=1, key="goal_caskets")
 with goal_start_col:
     st.button(
         "Set Progress Start Point",
         on_click=set_goal_progress_start_point,
-        width="stretch",
+        width="content",
         key="btn_goal_start_point",
     )
 
