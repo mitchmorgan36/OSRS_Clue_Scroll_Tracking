@@ -29,6 +29,7 @@ GOAL_PROGRESS_STATE_COLS = (
     "start_comp_total",
     "start_set_at",
 )
+GOAL_PROGRESS_STATE_SHEET = getattr(gsb, "GOAL_PROGRESS_STATE_SHEET", "goal_progress_state")
 
 PRICE_BLOOD = 400
 PRICE_DEATH = 200
@@ -594,7 +595,7 @@ def parse_iso_datetime(raw: Any) -> datetime | None:
 
 def load_goal_progress_state() -> Dict[str, Any]:
     try:
-        df = gsb.read_sheet_df(gsb.GOAL_PROGRESS_STATE_SHEET, list(GOAL_PROGRESS_STATE_COLS))
+        df = gsb.read_sheet_df(GOAL_PROGRESS_STATE_SHEET, list(GOAL_PROGRESS_STATE_COLS))
     except Exception:
         return {}
     if df.empty:
@@ -614,7 +615,7 @@ def save_goal_progress_state(start_acq_total: int, start_comp_total: int, start_
         "start_set_at": start_set_at.isoformat() if start_set_at else None,
     }
     state_df = pd.DataFrame([payload], columns=list(GOAL_PROGRESS_STATE_COLS))
-    gsb.replace_sheet(gsb.GOAL_PROGRESS_STATE_SHEET, list(GOAL_PROGRESS_STATE_COLS), state_df)
+    gsb.replace_sheet(GOAL_PROGRESS_STATE_SHEET, list(GOAL_PROGRESS_STATE_COLS), state_df)
 
 
 def human_gp(x: float) -> str:
