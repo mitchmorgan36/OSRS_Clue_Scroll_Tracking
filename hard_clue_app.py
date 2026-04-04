@@ -1,4 +1,3 @@
-import json
 import os
 from datetime import datetime
 from typing import Dict, Any
@@ -21,10 +20,15 @@ st.set_page_config(page_title="Hard Clue Dashboard", layout="wide")
 DATA_DIR = "data"
 ACQ_CSV = os.path.join(DATA_DIR, "hard_clue_trips.csv")
 COMP_CSV = os.path.join(DATA_DIR, "hard_clue_completion.csv")
-GOAL_PROGRESS_STATE_JSON = os.path.join(DATA_DIR, "hard_clue_goal_progress_state.json")
 
 GOAL_CASKETS = 650
 DEFAULT_CLUES_PER_TRIP = 5
+
+GOAL_PROGRESS_STATE_COLS = (
+    "start_acq_total",
+    "start_comp_total",
+    "start_set_at",
+)
 
 PRICE_BLOOD = 400
 PRICE_DEATH = 200
@@ -169,6 +173,31 @@ div[data-testid="column"] div[data-testid="metric-container"] {
   margin-bottom: 0 !important;
 }
 
+#ui-overflow-tooltip-float {
+  position: fixed;
+  z-index: 2147483647;
+  max-width: min(80vw, 64ch);
+  width: max-content;
+  white-space: normal;
+  padding: 0.24rem 0.44rem;
+  border-radius: 0.34rem;
+  background: rgba(15, 23, 42, 0.96);
+  color: #f8fafc;
+  box-shadow: 0 8px 20px rgba(2, 6, 23, 0.34);
+  line-height: 1.22;
+  font-size: 0.77rem;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(2px);
+  transition: opacity 45ms linear, transform 45ms ease;
+}
+#ui-overflow-tooltip-float[data-visible="1"] {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
 </style>
 """,
     unsafe_allow_html=True,
@@ -182,7 +211,12 @@ def inject_ui_dom_script() -> None:
     components.html(
         """
         <script>
-        const rootDoc = window.parent.document;
+        const rootWin = window.parent;
+        const rootDoc = rootWin.document;
+        const OVERFLOW_TOOLTIP_DELAY_MS = 50;
+        let overflowTooltipEl = null;
+        let overflowTooltipTimer = null;
+        let overflowTooltipTarget = null;
 
         function hidePressEnterHints() {
           const sidebar = rootDoc.querySelector('section[data-testid="stSidebar"]');
@@ -270,6 +304,79 @@ def inject_ui_dom_script() -> None:
           });
         }
 
+        function alignGoalStartButton() {
+          const normalizeLabel = (value) => (value || '').replace(/\\s+/g, ' ').trim();
+          const buttons = Array.from(rootDoc.querySelectorAll('button'));
+          const target = buttons.find(
+            (button) => normalizeLabel(button.innerText || button.textContent || '') === 'Set Progress Start Point'
+          );
+          if (!target) return;
+          const buttonWrap = target.closest('div[data-testid="stButton"]');
+          if (!buttonWrap) return;
+          const buttonElement = buttonWrap.closest('div[data-testid="stElementContainer"]');
+
+          const goalInput = rootDoc.querySelector('input[aria-label="Goal caskets"]');
+          const goalInputWrap = goalInput
+            ? goalInput.closest('[data-testid="stNumberInputContainer"]')
+            : null;
+          if (!goalInputWrap) return;
+
+          const goalCol = goalInputWrap.closest('div[data-testid="column"]');
+          const buttonCol = buttonWrap.closest('div[data-testid="column"]');
+          const controlRow = goalCol && goalCol.parentElement && goalCol.parentElement.contains(buttonCol)
+            ? goalCol.parentElement
+            : null;
+
+          const totalCluesMetric = Array.from(rootDoc.querySelectorAll('div[data-testid="metric-container"]'))
+            .find((el) => ((el.textContent || '').includes('Total clues acquired tracked')));
+          const totalsRow = totalCluesMetric
+            ? totalCluesMetric.closest('div[data-testid="stHorizontalBlock"]')
+            : null;
+
+          buttonWrap.style.transform = 'translateY(0px)';
+          buttonWrap.style.marginTop = '';
+          if (buttonElement) {
+            buttonElement.style.removeProperty('margin-top');
+            buttonElement.style.removeProperty('margin-bottom');
+          }
+          if (controlRow) {
+            controlRow.style.columnGap = '';
+            controlRow.style.marginBottom = '';
+            controlRow.style.removeProperty('row-gap');
+          }
+          if (goalCol) goalCol.style.marginBottom = '';
+          if (buttonCol) buttonCol.style.marginBottom = '';
+          if (totalsRow) totalsRow.style.marginTop = '';
+
+          const goalRect = goalInputWrap.getBoundingClientRect();
+          const buttonRect = buttonWrap.getBoundingClientRect();
+          const controlsStacked = buttonRect.top > (goalRect.bottom + 4);
+
+          if (controlsStacked) {
+            if (buttonElement) buttonElement.style.setProperty('margin-top', '0.42rem', 'important');
+            if (controlRow) controlRow.style.setProperty('row-gap', '0.42rem', 'important');
+            return;
+          }
+
+          const inputCenter = goalRect.top + (goalRect.height / 2);
+          const buttonCenter = buttonRect.top + (buttonRect.height / 2);
+          const delta = inputCenter - buttonCenter;
+          const clamped = Math.max(-18, Math.min(42, delta));
+          buttonWrap.style.transform = `translateY(${clamped}px)`;
+
+          const buttonWrapped = buttonRect.height > 58;
+          const compactHeaderMode = buttonWrapped || rootWin.innerWidth < 1080;
+          if (!compactHeaderMode) return;
+
+          if (controlRow) {
+            controlRow.style.columnGap = '0.55rem';
+            controlRow.style.marginBottom = '-0.22rem';
+          }
+          if (goalCol) goalCol.style.marginBottom = '-0.2rem';
+          if (buttonCol) buttonCol.style.marginBottom = '-0.2rem';
+          if (totalsRow) totalsRow.style.marginTop = '-0.45rem';
+        }
+
         function removeAuxiliaryInputTabStops() {
           const sidebar = rootDoc.querySelector('section[data-testid="stSidebar"]');
           if (!sidebar) return;
@@ -291,16 +398,163 @@ def inject_ui_dom_script() -> None:
           });
         }
 
+        function isTextVisiblyTruncated(el) {
+          if (!el) return false;
+          const style = rootWin.getComputedStyle(el);
+          const hasHorizontalTruncation = (el.scrollWidth - el.clientWidth) > 1;
+          const lineClamp = Number.parseInt(style.webkitLineClamp || '', 10);
+          const hasVerticalTruncation = Number.isFinite(lineClamp) && lineClamp > 0 && (el.scrollHeight - el.clientHeight) > 1;
+          const isHidden = style.display === 'none' || style.visibility === 'hidden';
+          if (isHidden) return false;
+          return hasHorizontalTruncation || hasVerticalTruncation;
+        }
+
+        function ensureOverflowTooltipElement() {
+          if (overflowTooltipEl && rootDoc.body.contains(overflowTooltipEl)) return overflowTooltipEl;
+          overflowTooltipEl = rootDoc.getElementById('ui-overflow-tooltip-float');
+          if (!overflowTooltipEl) {
+            overflowTooltipEl = rootDoc.createElement('div');
+            overflowTooltipEl.id = 'ui-overflow-tooltip-float';
+            rootDoc.body.appendChild(overflowTooltipEl);
+          }
+          return overflowTooltipEl;
+        }
+
+        function clearOverflowTooltipTimer() {
+          if (overflowTooltipTimer) {
+            rootWin.clearTimeout(overflowTooltipTimer);
+            overflowTooltipTimer = null;
+          }
+        }
+
+        function hideOverflowTooltip() {
+          clearOverflowTooltipTimer();
+          const tooltip = ensureOverflowTooltipElement();
+          tooltip.removeAttribute('data-visible');
+          overflowTooltipTarget = null;
+        }
+
+        function positionOverflowTooltip(target) {
+          if (!target) return;
+          const tooltip = ensureOverflowTooltipElement();
+          const margin = 8;
+          const gap = 6;
+          const rect = target.getBoundingClientRect();
+          const tipRect = tooltip.getBoundingClientRect();
+
+          let left = rect.left;
+          if (left + tipRect.width + margin > rootWin.innerWidth) {
+            left = rootWin.innerWidth - tipRect.width - margin;
+          }
+          left = Math.max(margin, left);
+
+          let top = rect.bottom + gap;
+          if (top + tipRect.height + margin > rootWin.innerHeight) {
+            top = rect.top - tipRect.height - gap;
+          }
+          top = Math.max(margin, top);
+
+          tooltip.style.left = `${Math.round(left)}px`;
+          tooltip.style.top = `${Math.round(top)}px`;
+        }
+
+        function scheduleOverflowTooltip(target) {
+          if (!target) return;
+          const text = target.getAttribute('data-ui-overflow-tooltip');
+          if (!text) return;
+          clearOverflowTooltipTimer();
+          overflowTooltipTimer = rootWin.setTimeout(() => {
+            const tooltip = ensureOverflowTooltipElement();
+            tooltip.textContent = text;
+            tooltip.setAttribute('data-visible', '1');
+            overflowTooltipTarget = target;
+            positionOverflowTooltip(target);
+            overflowTooltipTimer = null;
+          }, OVERFLOW_TOOLTIP_DELAY_MS);
+        }
+
+        function bindOverflowTooltipHover() {
+          if (rootDoc.body.dataset.uiOverflowTooltipHoverBound === '1') return;
+          rootDoc.body.dataset.uiOverflowTooltipHoverBound = '1';
+
+          rootDoc.addEventListener('mouseover', (event) => {
+            const candidate = event.target instanceof Element
+              ? event.target.closest('[data-ui-overflow-tooltip]')
+              : null;
+            if (!candidate) return;
+            if (overflowTooltipTarget === candidate) {
+              positionOverflowTooltip(candidate);
+              return;
+            }
+            hideOverflowTooltip();
+            scheduleOverflowTooltip(candidate);
+          }, true);
+
+          rootDoc.addEventListener('mouseout', (event) => {
+            const source = event.target instanceof Element
+              ? event.target.closest('[data-ui-overflow-tooltip]')
+              : null;
+            if (!source) return;
+            const related = event.relatedTarget;
+            if (related instanceof Element && source.contains(related)) return;
+            clearOverflowTooltipTimer();
+            if (overflowTooltipTarget === source) hideOverflowTooltip();
+          }, true);
+
+          rootDoc.addEventListener('scroll', () => {
+            if (overflowTooltipTarget) positionOverflowTooltip(overflowTooltipTarget);
+          }, true);
+          rootDoc.addEventListener('mousedown', hideOverflowTooltip, true);
+          rootDoc.addEventListener('keydown', hideOverflowTooltip, true);
+        }
+
+        function applyOverflowTooltips() {
+          const selector = [
+            '[data-testid="stMetricLabel"] p',
+            '[data-testid="stMetricValue"]',
+            '[data-testid="stCaptionContainer"] p',
+            '[data-testid="stTabs"] button [data-testid="stMarkdownContainer"] p',
+            '[data-testid="stTabs"] button p',
+            '.stMarkdown p',
+            '.stMarkdown span'
+          ].join(', ');
+
+          rootDoc.querySelectorAll(selector).forEach((el) => {
+            const text = (el.innerText || el.textContent || '').replace(/\\s+/g, ' ').trim();
+            if (!text) {
+              el.removeAttribute('data-ui-overflow-tooltip');
+              if (overflowTooltipTarget === el) hideOverflowTooltip();
+              return;
+            }
+            if (isTextVisiblyTruncated(el)) {
+              el.setAttribute('data-ui-overflow-tooltip', text);
+            } else {
+              el.removeAttribute('data-ui-overflow-tooltip');
+              if (overflowTooltipTarget === el) hideOverflowTooltip();
+            }
+          });
+        }
+
         function run() {
           hidePressEnterHints();
           applyButtonStyles();
+          alignGoalStartButton();
           removeAuxiliaryInputTabStops();
+          applyOverflowTooltips();
+          bindOverflowTooltipHover();
         }
 
         run();
         if (!rootDoc.body.dataset.uiSubmitHintFocusBound) {
           rootDoc.body.dataset.uiSubmitHintFocusBound = '1';
           rootDoc.addEventListener('focusin', hidePressEnterHints, true);
+        }
+        if (!rootDoc.body.dataset.uiOverflowTooltipResizeBound) {
+          rootDoc.body.dataset.uiOverflowTooltipResizeBound = '1';
+          rootWin.addEventListener('resize', () => {
+            rootWin.requestAnimationFrame(run);
+            if (overflowTooltipTarget) positionOverflowTooltip(overflowTooltipTarget);
+          });
         }
         const observer = new MutationObserver(run);
         observer.observe(rootDoc.body, { childList: true, subtree: true });
@@ -339,32 +593,28 @@ def parse_iso_datetime(raw: Any) -> datetime | None:
 
 
 def load_goal_progress_state() -> Dict[str, Any]:
-    ensure_data_dir()
-    if not os.path.exists(GOAL_PROGRESS_STATE_JSON):
-        return {}
     try:
-        with open(GOAL_PROGRESS_STATE_JSON, "r", encoding="utf-8") as fh:
-            payload = json.load(fh)
-    except (OSError, json.JSONDecodeError):
+        df = gsb.read_sheet_df(gsb.GOAL_PROGRESS_STATE_SHEET, list(GOAL_PROGRESS_STATE_COLS))
+    except Exception:
         return {}
-    if not isinstance(payload, dict):
+    if df.empty:
         return {}
+    row = df.iloc[-1]
     return {
-        "start_acq_total": clamp_nonnegative_int(payload.get("start_acq_total"), default=0),
-        "start_comp_total": clamp_nonnegative_int(payload.get("start_comp_total"), default=0),
-        "start_set_at": payload.get("start_set_at") or None,
+        "start_acq_total": clamp_nonnegative_int(row.get("start_acq_total"), default=0),
+        "start_comp_total": clamp_nonnegative_int(row.get("start_comp_total"), default=0),
+        "start_set_at": str(row.get("start_set_at") or "").strip() or None,
     }
 
 
 def save_goal_progress_state(start_acq_total: int, start_comp_total: int, start_set_at: datetime | None) -> None:
-    ensure_data_dir()
     payload = {
         "start_acq_total": clamp_nonnegative_int(start_acq_total, default=0),
         "start_comp_total": clamp_nonnegative_int(start_comp_total, default=0),
         "start_set_at": start_set_at.isoformat() if start_set_at else None,
     }
-    with open(GOAL_PROGRESS_STATE_JSON, "w", encoding="utf-8") as fh:
-        json.dump(payload, fh, indent=2)
+    state_df = pd.DataFrame([payload], columns=list(GOAL_PROGRESS_STATE_COLS))
+    gsb.replace_sheet(gsb.GOAL_PROGRESS_STATE_SHEET, list(GOAL_PROGRESS_STATE_COLS), state_df)
 
 
 def human_gp(x: float) -> str:
@@ -1319,7 +1569,12 @@ goal_input_col, goal_start_col, _goal_spacer_col = st.columns([1.3, 1.7, 9.0])
 with goal_input_col:
     st.number_input("Goal caskets", min_value=1, step=1, key="goal_caskets")
 with goal_start_col:
-    st.button("Set Progress Start Point", on_click=set_goal_progress_start_point, use_container_width=True)
+    st.button(
+        "Set Progress Start Point",
+        on_click=set_goal_progress_start_point,
+        use_container_width=True,
+        key="btn_goal_start_point",
+    )
 
 totals_col1, totals_col2, _totals_spacer_col = st.columns([1.8, 1.8, 8.4])
 totals_col1.metric("Total clues acquired tracked", running_acq_total)
