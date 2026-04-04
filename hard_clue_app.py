@@ -210,6 +210,16 @@ div[data-testid="column"] div[data-testid="metric-container"] {
 # UI DOM polish
 # ----------------------------
 def _render_inline_html(html: str, *, height: int = 0) -> None:
+    html_fn = getattr(st, "html", None)
+    if callable(html_fn):
+        html_params = inspect.signature(html_fn).parameters
+        if "unsafe_allow_javascript" in html_params:
+            html_kwargs: dict[str, Any] = {"unsafe_allow_javascript": True}
+            if "width" in html_params:
+                html_kwargs["width"] = "stretch"
+            html_fn(html, **html_kwargs)
+            return
+
     iframe_fn = getattr(st, "iframe", None)
     if callable(iframe_fn):
         iframe_params = inspect.signature(iframe_fn).parameters
@@ -238,7 +248,6 @@ def _render_inline_html(html: str, *, height: int = 0) -> None:
             iframe_fn(f"data:text/html;charset=utf-8,{quote(html)}", **iframe_kwargs)
             return
 
-    html_fn = getattr(st, "html", None)
     if callable(html_fn):
         html_params = inspect.signature(html_fn).parameters
         html_kwargs: dict[str, Any] = {}
