@@ -175,6 +175,10 @@ div[data-testid="column"] div[data-testid="metric-container"] {
   margin-bottom: 0 !important;
 }
 
+.goal-start-legacy-spacer {
+  height: 0.62rem;
+}
+
 #ui-overflow-tooltip-float {
   position: fixed;
   z-index: 2147483647;
@@ -209,9 +213,11 @@ div[data-testid="column"] div[data-testid="metric-container"] {
 # ----------------------------
 # UI DOM polish
 # ----------------------------
+HAS_COLUMNS_VERTICAL_ALIGNMENT = "vertical_alignment" in inspect.signature(st.columns).parameters
+
+
 def aligned_columns(spec: list[float], vertical_alignment: str = "top"):
-    columns_params = inspect.signature(st.columns).parameters
-    if "vertical_alignment" in columns_params:
+    if HAS_COLUMNS_VERTICAL_ALIGNMENT:
         return st.columns(spec, vertical_alignment=vertical_alignment)
     return st.columns(spec)
 
@@ -1561,11 +1567,13 @@ def set_goal_progress_start_point() -> None:
 st.title("Hard Clue Dashboard")
 goal_input_col, goal_start_col, _goal_spacer_col = aligned_columns(
     [1.3, 2.4, 8.3],
-    vertical_alignment="bottom",
+    vertical_alignment="center",
 )
 with goal_input_col:
     st.number_input("Goal caskets", min_value=1, step=1, key="goal_caskets")
 with goal_start_col:
+    if not HAS_COLUMNS_VERTICAL_ALIGNMENT:
+        st.markdown('<div class="goal-start-legacy-spacer"></div>', unsafe_allow_html=True)
     st.button(
         "Set Progress Start Point",
         on_click=set_goal_progress_start_point,
