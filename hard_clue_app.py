@@ -214,8 +214,9 @@ def _render_inline_html(html: str, *, height: int = 0) -> None:
     if callable(iframe_fn):
         iframe_params = inspect.signature(iframe_fn).parameters
         iframe_kwargs: dict[str, Any] = {}
+        normalized_height = max(1, int(height))
         if "height" in iframe_params:
-            iframe_kwargs["height"] = height if height > 0 else "content"
+            iframe_kwargs["height"] = normalized_height
         if "width" in iframe_params:
             iframe_kwargs["width"] = "stretch"
         if "scrolling" in iframe_params:
