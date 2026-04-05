@@ -13,6 +13,7 @@ from google.oauth2.service_account import Credentials
 ACQ_SHEET = "acquisition_trips"
 COMP_SHEET = "completion_sessions"
 GOAL_PROGRESS_STATE_SHEET = "goal_progress_state"
+GOAL_SETTINGS_SHEET = "goal_settings"
 
 # Scopes consistent with service-account write access for Sheets/Drive.
 SCOPES = [
@@ -94,6 +95,11 @@ def _get_worksheet(title: str) -> gspread.Worksheet:
 def _clean_value(v: Any) -> Any:
     if pd.isna(v):
         return ""
+    if hasattr(v, "item"):
+        try:
+            return v.item()
+        except Exception:
+            pass
     return v
 
 

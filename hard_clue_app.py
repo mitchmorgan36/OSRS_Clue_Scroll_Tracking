@@ -33,6 +33,8 @@ GOAL_PROGRESS_STATE_COLS = (
     "start_set_at",
 )
 GOAL_PROGRESS_STATE_SHEET = getattr(gsb, "GOAL_PROGRESS_STATE_SHEET", "goal_progress_state")
+GOAL_SETTINGS_COLS = ("goal_caskets",)
+GOAL_SETTINGS_SHEET = getattr(gsb, "GOAL_SETTINGS_SHEET", "goal_settings")
 
 PRICE_BLOOD = 400
 PRICE_DEATH = 200
@@ -565,6 +567,31 @@ def save_goal_progress_state(start_acq_total: int, start_comp_total: int, start_
     }
     state_df = pd.DataFrame([payload], columns=list(GOAL_PROGRESS_STATE_COLS))
     gsb.replace_sheet(GOAL_PROGRESS_STATE_SHEET, list(GOAL_PROGRESS_STATE_COLS), state_df)
+
+
+def normalize_goal_caskets(value: Any) -> int:
+    return max(1, clamp_nonnegative_int(value, default=GOAL_CASKETS))
+
+
+def load_goal_settings_state() -> Dict[str, Any]:
+    try:
+        df = gsb.read_sheet_df(GOAL_SETTINGS_SHEET, list(GOAL_SETTINGS_COLS))
+    except Exception:
+        return {}
+    if df.empty:
+        return {}
+    row = df.iloc[-1]
+    return {
+        "goal_caskets": normalize_goal_caskets(row.get("goal_caskets")),
+    }
+
+
+def save_goal_settings_state(goal_caskets: int) -> None:
+    payload = {
+        "goal_caskets": normalize_goal_caskets(goal_caskets),
+    }
+    state_df = pd.DataFrame([payload], columns=list(GOAL_SETTINGS_COLS))
+    gsb.replace_sheet(GOAL_SETTINGS_SHEET, list(GOAL_SETTINGS_COLS), state_df)
 
 
 def human_gp(x: float) -> str:
@@ -1251,6 +1278,7 @@ COMP_COLS = (
 # ----------------------------
 def ss_init() -> None:
     goal_progress_state = load_goal_progress_state()
+    goal_settings_state = load_goal_settings_state()
 
     st.session_state.setdefault("acq_start_system", None)
     st.session_state.setdefault("acq_end_system", None)
@@ -1273,7 +1301,7 @@ def ss_init() -> None:
 
     st.session_state.setdefault("pending_apply", False)
     st.session_state.setdefault("pending", {})
-    st.session_state.setdefault("goal_caskets", GOAL_CASKETS)
+    st.session_state.setdefault("goal_caskets", goal_settings_state.get("goal_caskets", GOAL_CASKETS))
     st.session_state.setdefault("goal_progress_start_acq_total", goal_progress_state.get("start_acq_total"))
     st.session_state.setdefault("goal_progress_start_comp_total", goal_progress_state.get("start_comp_total"))
     st.session_state.setdefault("goal_progress_start_set_at", goal_progress_state.get("start_set_at"))
@@ -1290,7 +1318,8 @@ def apply_pending_before_widgets() -> None:
 
 ss_init()
 apply_pending_before_widgets()
-goal_caskets = int(st.session_state.get("goal_caskets", GOAL_CASKETS))
+goal_caskets = normalize_goal_caskets(st.session_state.get("goal_caskets", GOAL_CASKETS))
+st.session_state["goal_caskets"] = goal_caskets
 
 
 # ----------------------------
@@ -1552,6 +1581,12 @@ def set_goal_progress_start_point() -> None:
     )
 
 
+def persist_goal_caskets() -> None:
+    normalized_goal = normalize_goal_caskets(st.session_state.get("goal_caskets", GOAL_CASKETS))
+    st.session_state["goal_caskets"] = normalized_goal
+    save_goal_settings_state(normalized_goal)
+
+
 # ----------------------------
 # Header
 # ----------------------------
@@ -1569,6 +1604,7 @@ with goal_controls:
             min_value=1,
             step=1,
             key="goal_caskets",
+            on_change=persist_goal_caskets,
             label_visibility="collapsed",
             width="stretch",
         )
