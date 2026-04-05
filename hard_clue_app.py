@@ -1527,6 +1527,7 @@ combo_goal_time_remaining_s = combo_goal_remaining * (
     float(acq_sum.get("avg_time_clue_s", 0.0) or 0.0)
     + float(comp_sum.get("avg_time_casket_s", 0.0) or 0.0)
 )
+combo_expected_alch_gp_remaining = combo_goal_remaining * EXPECTED_ALCH_GP_PER_CASKET
 combo_projected_net_acquisition_gp_remaining = float("nan")
 combo_expected_net_remaining = float("nan")
 if acq_sum:
@@ -2085,10 +2086,11 @@ with tab_combo:
 
         st.divider()
 
-        c1, c2, c3, _c4, _c5 = st.columns(5)
+        c1, c2, c3, c4 = st.columns(4)
         c1.metric("Net acquisition GP remaining", human_gp_or_na(combo_projected_net_acquisition_gp_remaining))
-        c2.metric("Net GP remaining (full process)", human_gp_or_na(combo_expected_net_remaining))
-        c3.metric("Remaining caskets", int(combo_goal_remaining))
+        c2.metric("Expected alch GP remaining", human_gp_or_na(combo_expected_alch_gp_remaining))
+        c3.metric("Net GP remaining (full process)", human_gp_or_na(combo_expected_net_remaining))
+        c4.metric("Remaining caskets", int(combo_goal_remaining))
 
         st.divider()
         st.subheader("Charts")
