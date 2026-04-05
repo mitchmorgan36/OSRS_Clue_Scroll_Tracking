@@ -1096,47 +1096,51 @@ def build_end_to_end_trend_df(acq_df: pd.DataFrame, comp_df: pd.DataFrame) -> pd
     d["complete_minutes_per_casket"] = (d["cum_comp_seconds"] / d["cum_comp_caskets"]) / 60.0
     d["total_minutes_per_casket"] = d["acquire_minutes_per_casket"] + d["complete_minutes_per_casket"]
     d["end_to_end_caskets_per_hour"] = d["total_minutes_per_casket"].apply(lambda x: 60.0 / x if x > 0 else 0.0)
+    d["rolling_5_day_end_to_end_caskets_per_hour"] = (
+        d["end_to_end_caskets_per_hour"].rolling(window=5, min_periods=1).mean()
+    )
+    d["rolling_5_day_total_minutes_per_casket"] = (
+        d["total_minutes_per_casket"].rolling(window=5, min_periods=1).mean()
+    )
     d["date_label"] = d["date"].dt.strftime("%Y-%m-%d")
     return d
 
 
-def build_end_to_end_stacked_time_chart(end_to_end_sum: Dict[str, Any]) -> go.Figure:
+def build_end_to_end_time_breakdown_pie(end_to_end_sum: Dict[str, Any]) -> go.Figure:
     fig = go.Figure()
+    acquire_minutes = float(end_to_end_sum.get("acquire_minutes_per_casket") or 0.0)
+    complete_minutes = float(end_to_end_sum.get("complete_minutes_per_casket") or 0.0)
+
+    labels = ["Acquisition time", "Completion time"]
+    values = [max(0.0, acquire_minutes), max(0.0, complete_minutes)]
+    if sum(values) <= 0:
+        fig.update_layout(title="Time breakdown per casket", height=360)
+        return fig
+
     fig.add_trace(
-        go.Bar(
-            x=["Current full-cycle"],
-            y=[end_to_end_sum["acquire_minutes_per_casket"]],
-            name="Acquisition",
-            marker_color="#1d4ed8",
-            text=[f"{end_to_end_sum['acquire_minutes_per_casket']:.2f}"],
-            textposition="inside",
-        )
-    )
-    fig.add_trace(
-        go.Bar(
-            x=["Current full-cycle"],
-            y=[end_to_end_sum["complete_minutes_per_casket"]],
-            name="Completion",
-            marker_color="#0f766e",
-            text=[f"{end_to_end_sum['complete_minutes_per_casket']:.2f}"],
-            textposition="inside",
+        go.Pie(
+            labels=labels,
+            values=values,
+            hole=0.35,
+            sort=False,
+            marker=dict(colors=["#1d4ed8", "#0f766e"]),
+            textinfo="percent",
+            texttemplate="%{percent:.1%}",
+            hovertemplate="%{label}<br>%{value:.2f} min (%{percent:.1%})<extra></extra>",
         )
     )
     fig.update_layout(
-        barmode="stack",
-        title=dict(text="Stacked time breakdown per casket", y=0.97),
-        height=360,
-        margin=dict(l=40, r=20, t=95, b=40),
-        xaxis=dict(title=""),
-        yaxis=dict(title="Minutes per casket"),
-        legend=dict(orientation="h", yanchor="bottom", y=1.12, xanchor="left", x=0),
+        title="Time breakdown per casket",
+        height=430,
+        margin=dict(l=20, r=20, t=90, b=95),
+        legend=dict(orientation="h", yanchor="top", y=-0.08, xanchor="center", x=0.5),
     )
     return fig
 
 
 def build_end_to_end_cph_chart(trend_df: pd.DataFrame) -> go.Figure:
     fig = go.Figure()
-    fig.update_layout(**make_line_layout("End-to-end caskets per hour over time", "Date", "Caskets per hour", height=380))
+    fig.update_layout(**make_line_layout("Total caskets per hour", "Date", "Caskets per hour", height=380))
     if trend_df.empty:
         return fig
 
@@ -1146,12 +1150,24 @@ def build_end_to_end_cph_chart(trend_df: pd.DataFrame) -> go.Figure:
             y=trend_df["end_to_end_caskets_per_hour"],
             mode="lines+markers",
             name="End-to-end caskets/hr",
-            line=dict(color="#10b981", width=3),
-            marker=dict(color="#10b981", size=7),
+            line=dict(color="#dc2626", width=3),
+            marker=dict(color="#dc2626", size=7),
             hovertemplate="%{x}<br>End-to-end caskets/hr: %{y:.2f}<extra></extra>",
         )
     )
+    fig.add_trace(
+        go.Scatter(
+            x=trend_df["date_label"],
+            y=trend_df["rolling_5_day_end_to_end_caskets_per_hour"],
+            mode="lines",
+            name="Rolling 5-day avg",
+            line=dict(color="#f87171", width=3, dash="dash"),
+            hovertemplate="%{x}<br>Rolling 5-day caskets/hr: %{y:.2f}<extra></extra>",
+        )
+    )
     fig.update_layout(
+        margin=dict(l=40, r=40, t=48, b=88),
+        legend=dict(orientation="h", yanchor="top", y=-0.22, xanchor="center", x=0.5),
         xaxis=dict(
             title="Date",
             type="category",
@@ -1165,7 +1181,7 @@ def build_end_to_end_cph_chart(trend_df: pd.DataFrame) -> go.Figure:
 def build_end_to_end_minutes_chart(trend_df: pd.DataFrame) -> go.Figure:
     fig = go.Figure()
     fig.update_layout(
-        **make_line_layout("Total minutes per casket over time", "Date", "Minutes per casket", height=340)
+        **make_line_layout("Total minutes per casket", "Date", "Minutes per casket", height=340)
     )
     if trend_df.empty:
         return fig
@@ -1181,7 +1197,19 @@ def build_end_to_end_minutes_chart(trend_df: pd.DataFrame) -> go.Figure:
             hovertemplate="%{x}<br>Total min/casket: %{y:.2f}<extra></extra>",
         )
     )
+    fig.add_trace(
+        go.Scatter(
+            x=trend_df["date_label"],
+            y=trend_df["rolling_5_day_total_minutes_per_casket"],
+            mode="lines",
+            name="Rolling 5-day avg",
+            line=dict(color="#a78bfa", width=3, dash="dash"),
+            hovertemplate="%{x}<br>Rolling 5-day min/casket: %{y:.2f}<extra></extra>",
+        )
+    )
     fig.update_layout(
+        margin=dict(l=40, r=40, t=48, b=88),
+        legend=dict(orientation="h", yanchor="top", y=-0.28, xanchor="center", x=0.5),
         xaxis=dict(
             title="Date",
             type="category",
@@ -1221,9 +1249,9 @@ def build_end_to_end_income_source_pie(end_to_end_sum: Dict[str, Any]) -> go.Fig
     )
     fig.update_layout(
         title="Income source share toward net GP per casket",
-        height=360,
-        margin=dict(l=20, r=20, t=70, b=20),
-        legend=dict(orientation="h", yanchor="bottom", y=1.04, xanchor="left", x=0),
+        height=430,
+        margin=dict(l=20, r=20, t=90, b=95),
+        legend=dict(orientation="h", yanchor="top", y=-0.08, xanchor="center", x=0.5),
     )
     return fig
 
@@ -2083,7 +2111,7 @@ with tab_combo:
             f"{int(combo_goal_remaining)} remaining to {goal_caskets}"
         )
 
-        a1, a2, a3, a4 = st.columns(4)
+        a1, a2, a3, a4, _a5 = st.columns(5)
         a1.metric("Acquire min / clue", f"{end_to_end_sum['acquire_minutes_per_clue']:.2f}")
         a2.metric("Complete min / casket", f"{end_to_end_sum['complete_minutes_per_casket']:.2f}")
         a3.metric("Total min / casket", f"{end_to_end_sum['total_minutes_per_casket']:.2f}")
@@ -2100,7 +2128,7 @@ with tab_combo:
 
         st.divider()
 
-        b1, b2, b3, b4 = st.columns(4)
+        b1, b2, b3, b4, _b5 = st.columns(5)
         b1.metric("Acquisition share of total time", f"{end_to_end_sum['acquisition_share_of_total_time'] * 100:.1f}%")
         b2.metric("Completion share of total time", f"{end_to_end_sum['completion_share_of_total_time'] * 100:.1f}%")
         b3.metric("Current bottleneck", end_to_end_sum["bottleneck"])
@@ -2108,14 +2136,17 @@ with tab_combo:
 
         st.divider()
 
-        c1, c2, c3 = st.columns(3)
+        c1, c2, c3, _c4, _c5 = st.columns(5)
         c1.metric("Net acquisition GP remaining", human_gp_or_na(combo_projected_net_acquisition_gp_remaining))
         c2.metric("Net GP remaining (full process)", human_gp_or_na(combo_expected_net_remaining))
         c3.metric("Remaining caskets", int(combo_goal_remaining))
 
         st.divider()
         st.subheader("Charts")
-        st.plotly_chart(build_end_to_end_income_source_pie(end_to_end_sum), width="stretch")
-        st.plotly_chart(build_end_to_end_stacked_time_chart(end_to_end_sum), width="stretch")
+        pie_col1, pie_col2 = st.columns(2)
+        with pie_col1:
+            st.plotly_chart(build_end_to_end_income_source_pie(end_to_end_sum), width="stretch")
+        with pie_col2:
+            st.plotly_chart(build_end_to_end_time_breakdown_pie(end_to_end_sum), width="stretch")
         st.plotly_chart(build_end_to_end_cph_chart(end_to_end_trend_df), width="stretch")
         st.plotly_chart(build_end_to_end_minutes_chart(end_to_end_trend_df), width="stretch")
