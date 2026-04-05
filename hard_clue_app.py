@@ -594,10 +594,18 @@ def human_gp_or_na(x: Any) -> str:
 def fmt_hours_minutes(total_seconds: float) -> str:
     total_seconds = int(round(float(total_seconds or 0)))
     total_seconds = max(0, total_seconds)
+    if total_seconds < 3600:
+        mins = total_seconds // 60
+        secs = total_seconds % 60
+        return f"{mins}m {secs:02d}s"
     hours = total_seconds // 3600
     mins = (total_seconds % 3600) // 60
     return f"{hours}h {mins:02d}m"
 
+
+
+def seconds_to_metric_duration(total_seconds: float) -> str:
+    return fmt_hours_minutes(total_seconds)
 
 
 def seconds_to_hhmm(total_seconds: float) -> str:
@@ -721,6 +729,10 @@ def make_line_layout(title: str, x_title: str, y_title: str, y2_title: str | Non
 
 def minutes_to_hhmm(total_minutes: float) -> str:
     return seconds_to_hhmm(float(total_minutes or 0) * 60.0)
+
+
+def minutes_to_metric_duration(total_minutes: float) -> str:
+    return fmt_hours_minutes(float(total_minutes or 0) * 60.0)
 
 
 def prepare_acq_metrics(df: pd.DataFrame) -> pd.DataFrame:
@@ -1883,7 +1895,7 @@ with tab_acq:
         k1, k2, k3, k4, k5, k6 = st.columns(6)
         k1.metric("Trips", int(acq_sum["total_trips"]))
         k2.metric("Clues logged", total)
-        k3.metric("Avg time / clue", seconds_to_hhmm(acq_sum["avg_time_clue_s"]))
+        k3.metric("Avg time / clue", seconds_to_metric_duration(acq_sum["avg_time_clue_s"]))
         k4.metric("Clues / hour", f"{acq_sum['clues_per_hour']:.2f}")
         k5.metric("Bloods / clue", f"{acq_sum['avg_bloods_per_clue']:.2f}")
         k6.metric("GP spent / clue", human_gp_or_na(acq_sum["avg_gp_per_clue"]))
@@ -1891,10 +1903,10 @@ with tab_acq:
         st.divider()
 
         t1, t2, t3, t4, t5, t6 = st.columns(6)
-        t1.metric("Avg trip length", seconds_to_hhmm(acq_sum["avg_time_trip_s"]))
-        t2.metric("Rolling 10-trip avg time / clue", minutes_to_hhmm(rolling_latest))
-        t3.metric("Median time / clue", minutes_to_hhmm(median_minutes_per_clue))
-        t4.metric("Best rolling 10-trip time / clue", minutes_to_hhmm(rolling_best))
+        t1.metric("Avg trip length", seconds_to_metric_duration(acq_sum["avg_time_trip_s"]))
+        t2.metric("Rolling 10-trip avg time / clue", minutes_to_metric_duration(rolling_latest))
+        t3.metric("Median time / clue", minutes_to_metric_duration(median_minutes_per_clue))
+        t4.metric("Best rolling 10-trip time / clue", minutes_to_metric_duration(rolling_best))
         t5.metric("Time remaining (acquire)", fmt_hours_minutes(acq_goal_time_remaining_s))
         t6.metric("Remaining caskets", remaining)
 
@@ -1980,18 +1992,18 @@ with tab_comp:
         k1, k2, k3, k4, k5, k6 = st.columns(6)
         k1.metric("Sessions", int(comp_sum["total_sessions"]))
         k2.metric("Caskets completed logged", total_completed)
-        k3.metric("Avg time / casket", seconds_to_hhmm(comp_sum["avg_time_casket_s"]))
+        k3.metric("Avg time / casket", seconds_to_metric_duration(comp_sum["avg_time_casket_s"]))
         k4.metric("Caskets / hour", f"{comp_sum['caskets_per_hour']:.2f}")
-        k5.metric("Median time / casket", minutes_to_hhmm(median_minutes_per_casket))
-        k6.metric("Rolling 10-session avg time / casket", minutes_to_hhmm(rolling_latest))
+        k5.metric("Median time / casket", minutes_to_metric_duration(median_minutes_per_casket))
+        k6.metric("Rolling 10-session avg time / casket", minutes_to_metric_duration(rolling_latest))
 
         st.divider()
 
         t1, t2, t3, t4, t5, t6 = st.columns(6)
-        t1.metric("Avg session length", seconds_to_hhmm(comp_sum["avg_time_session_s"]))
-        t2.metric("Best rolling 10-session time / casket", minutes_to_hhmm(rolling_best))
-        t3.metric("Fastest session time / casket", minutes_to_hhmm(fastest_minutes_per_casket))
-        t4.metric("Slowest session time / casket", minutes_to_hhmm(slowest_minutes_per_casket))
+        t1.metric("Avg session length", seconds_to_metric_duration(comp_sum["avg_time_session_s"]))
+        t2.metric("Best rolling 10-session time / casket", minutes_to_metric_duration(rolling_best))
+        t3.metric("Fastest session time / casket", minutes_to_metric_duration(fastest_minutes_per_casket))
+        t4.metric("Slowest session time / casket", minutes_to_metric_duration(slowest_minutes_per_casket))
         t5.metric("Time remaining (complete)", fmt_hours_minutes(comp_goal_time_remaining_s))
         t6.metric(f"Remaining to {goal_caskets} (complete)", remaining)
 
