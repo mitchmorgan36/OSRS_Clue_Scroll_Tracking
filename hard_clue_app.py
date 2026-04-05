@@ -144,6 +144,9 @@ section[data-testid="stSidebar"] div[data-testid="stCaptionContainer"] p {
 section[data-testid="stSidebar"] [data-testid="stFormInstructions"] {
   display: none !important;
 }
+section[data-testid="stSidebar"] [data-testid="InputInstructions"] {
+  display: none !important;
+}
 
 hr {
   margin: 0.2rem 0 0.3rem 0 !important;
@@ -305,45 +308,6 @@ def inject_ui_dom_script() -> None:
         let overflowTooltipTimer = null;
         let overflowTooltipTarget = null;
 
-        function hidePressEnterHints() {
-          const sidebar = rootDoc.querySelector('section[data-testid="stSidebar"]');
-          if (!sidebar) return;
-
-          const isSubmitHintText = (value) => {
-            if (!value) return false;
-            const normalized = value
-              .toLowerCase()
-              .replace(/⌘/g, 'command')
-              .replace(/\\s+/g, ' ')
-              .trim();
-            if (!normalized.startsWith('press')) return false;
-            if (!normalized.includes('enter')) return false;
-            if (!normalized.includes('submit')) return false;
-            return normalized.includes('form');
-          };
-
-          const hintContainers = sidebar.querySelectorAll(
-            '[data-testid="stFormInstructions"], [data-testid="stCaptionContainer"], [data-testid="stMarkdownContainer"]'
-          );
-
-          hintContainers.forEach((el) => {
-            const text = (el.textContent || '').trim();
-            if (!text || text.length > 160) return;
-            if (!isSubmitHintText(text)) return;
-            el.style.display = 'none';
-          });
-
-          sidebar.querySelectorAll('*').forEach((el) => {
-            if (el.dataset.uiSubmitHintHidden === '1') return;
-            const text = (el.textContent || '').trim();
-            if (!text || text.length > 90) return;
-            if (!isSubmitHintText(text)) return;
-            if (el.querySelector('input, textarea, button, select, [role="textbox"]')) return;
-            el.style.display = 'none';
-            el.dataset.uiSubmitHintHidden = '1';
-          });
-        }
-
         function styleButton(button, styles) {
           if (!button) return;
           if (styles.bg) button.style.background = styles.bg;
@@ -388,27 +352,6 @@ def inject_ui_dom_script() -> None:
             if (label === 'End Now') {
               styleButton(button, { hoverBg: '#b4534d', hoverBorder: '#8f413b', hoverTextColor: '#f8fafc' });
             }
-          });
-        }
-
-        function removeAuxiliaryInputTabStops() {
-          const sidebar = rootDoc.querySelector('section[data-testid="stSidebar"]');
-          if (!sidebar) return;
-
-          const selector = [
-            '[data-testid="stTextInputRootElement"] button',
-            '[data-testid="stNumberInputContainer"] button',
-            '[data-testid="stDateInput"] button',
-            '[data-testid="stTextInputRootElement"] [role="button"]',
-            '[data-testid="stNumberInputContainer"] [role="button"]',
-            '[data-testid="stDateInput"] [role="button"]'
-          ].join(', ');
-
-          sidebar.querySelectorAll(selector).forEach((control) => {
-            if (control.closest('[data-testid="stFormSubmitButton"]')) return;
-            if (control.dataset.uiNoTabPatch === '1') return;
-            control.setAttribute('tabindex', '-1');
-            control.dataset.uiNoTabPatch = '1';
           });
         }
 
@@ -550,18 +493,12 @@ def inject_ui_dom_script() -> None:
         }
 
         function run() {
-          hidePressEnterHints();
           applyButtonStyles();
-          removeAuxiliaryInputTabStops();
           applyOverflowTooltips();
           bindOverflowTooltipHover();
         }
 
         run();
-        if (!rootDoc.body.dataset.uiSubmitHintFocusBound) {
-          rootDoc.body.dataset.uiSubmitHintFocusBound = '1';
-          rootDoc.addEventListener('focusin', hidePressEnterHints, true);
-        }
         if (!rootDoc.body.dataset.uiOverflowTooltipResizeBound) {
           rootDoc.body.dataset.uiOverflowTooltipResizeBound = '1';
           rootWin.addEventListener('resize', () => {
