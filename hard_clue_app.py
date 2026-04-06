@@ -227,6 +227,26 @@ div.st-key-btn_goal_start_point button {
   word-break: normal !important;
   text-overflow: clip !important;
 }
+div.st-key-btn_save_acq_trip button {
+  background: var(--acq-save-bg) !important;
+  border-color: var(--acq-save-border) !important;
+  color: #f8fafc !important;
+}
+div.st-key-btn_save_acq_trip button:hover {
+  background: var(--acq-save-hover) !important;
+  border-color: #1e3a8a !important;
+  color: #f8fafc !important;
+}
+div.st-key-btn_save_comp_session button {
+  background: var(--comp-save-bg) !important;
+  border-color: var(--comp-save-border) !important;
+  color: #f8fafc !important;
+}
+div.st-key-btn_save_comp_session button:hover {
+  background: var(--comp-save-hover) !important;
+  border-color: #134e4a !important;
+  color: #f8fafc !important;
+}
 div.st-key-btn_acq_clear_start button,
 div.st-key-btn_acq_clear_end button,
 div.st-key-btn_comp_clear_start button,
@@ -392,12 +412,6 @@ def inject_ui_dom_script() -> None:
           const buttons = Array.from(rootDoc.querySelectorAll('button'));
           buttons.forEach((button) => {
             const label = (button.innerText || button.textContent || '').trim();
-            if (label === 'Save Acquisition Trip') {
-              styleButton(button, { bg: '#1d4ed8', border: '#1e40af', textColor: '#f8fafc', hoverBg: '#1e40af', hoverBorder: '#1e3a8a', hoverTextColor: '#f8fafc' });
-            }
-            if (label === 'Save Completion Session') {
-              styleButton(button, { bg: '#0f766e', border: '#115e59', textColor: '#f8fafc', hoverBg: '#115e59', hoverBorder: '#134e4a', hoverTextColor: '#f8fafc' });
-            }
             if (label === 'Start Now') {
               styleButton(button, { hoverBg: '#2f7d57', hoverBorder: '#256347', hoverTextColor: '#f8fafc' });
             }
