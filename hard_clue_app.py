@@ -1,6 +1,6 @@
 import os
 import inspect
-from datetime import datetime
+from datetime import date, datetime
 from typing import Dict, Any
 from urllib.parse import quote
 from uuid import uuid4
@@ -35,6 +35,30 @@ GOAL_PROGRESS_STATE_COLS = (
 GOAL_PROGRESS_STATE_SHEET = getattr(gsb, "GOAL_PROGRESS_STATE_SHEET", "goal_progress_state")
 GOAL_SETTINGS_COLS = ("goal_caskets",)
 GOAL_SETTINGS_SHEET = getattr(gsb, "GOAL_SETTINGS_SHEET", "goal_settings")
+ACQ_LOGGER_STATE_COLS = (
+    "log_date",
+    "start_playtime",
+    "end_playtime",
+    "start_bloods",
+    "end_bloods",
+    "clues",
+    "notes",
+    "start_system",
+    "end_system",
+    "updated_at",
+)
+ACQ_LOGGER_STATE_SHEET = getattr(gsb, "ACQ_LOGGER_STATE_SHEET", "acquisition_logger_state")
+COMP_LOGGER_STATE_COLS = (
+    "log_date",
+    "start_playtime",
+    "end_playtime",
+    "clues_completed",
+    "notes",
+    "start_system",
+    "end_system",
+    "updated_at",
+)
+COMP_LOGGER_STATE_SHEET = getattr(gsb, "COMP_LOGGER_STATE_SHEET", "completion_logger_state")
 
 PRICE_BLOOD = 400
 PRICE_DEATH = 200
@@ -542,6 +566,151 @@ def parse_iso_datetime(raw: Any) -> datetime | None:
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=LOCAL_TIMEZONE)
     return dt.astimezone(LOCAL_TIMEZONE)
+
+
+def parse_iso_date(raw: Any) -> date | None:
+    if raw in (None, ""):
+        return None
+    try:
+        return date.fromisoformat(str(raw))
+    except (TypeError, ValueError):
+        return None
+
+
+def clamp_positive_int(value: Any, default: int) -> int:
+    return max(1, clamp_nonnegative_int(value, default=default))
+
+
+def parse_optional_nonnegative_int(raw: Any) -> int | None:
+    if raw in (None, ""):
+        return None
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return None
+    return value if value >= 0 else None
+
+
+def normalize_draft_text(value: Any) -> str:
+    return "" if value in (None, "") else str(value)
+
+
+def normalize_draft_date(value: Any, default: date | None = None) -> date | None:
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    parsed = parse_iso_date(value)
+    if parsed is not None:
+        return parsed
+    return default
+
+
+def normalize_draft_datetime(value: Any) -> datetime | None:
+    if isinstance(value, datetime):
+        dt = value
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=LOCAL_TIMEZONE)
+        return dt.astimezone(LOCAL_TIMEZONE)
+    return parse_iso_datetime(value)
+
+
+def load_acq_logger_state() -> tuple[Dict[str, Any], str | None]:
+    try:
+        df = gsb.read_sheet_df(ACQ_LOGGER_STATE_SHEET, list(ACQ_LOGGER_STATE_COLS))
+    except Exception as ex:
+        return {}, f"Could not load acquisition draft from Google Sheets: {ex}"
+    if df.empty:
+        return {}, None
+    row = df.iloc[-1]
+    return {
+        "log_date": normalize_draft_date(row.get("log_date")),
+        "start_playtime": normalize_draft_text(row.get("start_playtime")),
+        "end_playtime": normalize_draft_text(row.get("end_playtime")),
+        "start_bloods": parse_optional_nonnegative_int(row.get("start_bloods")),
+        "end_bloods": parse_optional_nonnegative_int(row.get("end_bloods")),
+        "clues": clamp_positive_int(row.get("clues"), default=DEFAULT_CLUES_PER_TRIP),
+        "notes": normalize_draft_text(row.get("notes")),
+        "start_system": normalize_draft_datetime(row.get("start_system")),
+        "end_system": normalize_draft_datetime(row.get("end_system")),
+    }, None
+
+
+def load_comp_logger_state() -> tuple[Dict[str, Any], str | None]:
+    try:
+        df = gsb.read_sheet_df(COMP_LOGGER_STATE_SHEET, list(COMP_LOGGER_STATE_COLS))
+    except Exception as ex:
+        return {}, f"Could not load completion draft from Google Sheets: {ex}"
+    if df.empty:
+        return {}, None
+    row = df.iloc[-1]
+    return {
+        "log_date": normalize_draft_date(row.get("log_date")),
+        "start_playtime": normalize_draft_text(row.get("start_playtime")),
+        "end_playtime": normalize_draft_text(row.get("end_playtime")),
+        "clues_completed": clamp_positive_int(row.get("clues_completed"), default=10),
+        "notes": normalize_draft_text(row.get("notes")),
+        "start_system": normalize_draft_datetime(row.get("start_system")),
+        "end_system": normalize_draft_datetime(row.get("end_system")),
+    }, None
+
+
+def save_acq_logger_state(
+    *,
+    log_date: Any,
+    start_playtime: Any,
+    end_playtime: Any,
+    start_bloods: Any,
+    end_bloods: Any,
+    clues: Any,
+    notes: Any,
+    start_system: Any,
+    end_system: Any,
+) -> None:
+    normalized_log_date = normalize_draft_date(log_date, default=today_local()) or today_local()
+    normalized_start_system = normalize_draft_datetime(start_system)
+    normalized_end_system = normalize_draft_datetime(end_system)
+    payload = {
+        "log_date": normalized_log_date.isoformat(),
+        "start_playtime": normalize_draft_text(start_playtime),
+        "end_playtime": normalize_draft_text(end_playtime),
+        "start_bloods": parse_optional_nonnegative_int(start_bloods),
+        "end_bloods": parse_optional_nonnegative_int(end_bloods),
+        "clues": clamp_positive_int(clues, default=DEFAULT_CLUES_PER_TRIP),
+        "notes": normalize_draft_text(notes),
+        "start_system": normalized_start_system.isoformat() if normalized_start_system else None,
+        "end_system": normalized_end_system.isoformat() if normalized_end_system else None,
+        "updated_at": now_local().isoformat(),
+    }
+    state_df = pd.DataFrame([payload], columns=list(ACQ_LOGGER_STATE_COLS))
+    gsb.replace_sheet(ACQ_LOGGER_STATE_SHEET, list(ACQ_LOGGER_STATE_COLS), state_df)
+
+
+def save_comp_logger_state(
+    *,
+    log_date: Any,
+    start_playtime: Any,
+    end_playtime: Any,
+    clues_completed: Any,
+    notes: Any,
+    start_system: Any,
+    end_system: Any,
+) -> None:
+    normalized_log_date = normalize_draft_date(log_date, default=today_local()) or today_local()
+    normalized_start_system = normalize_draft_datetime(start_system)
+    normalized_end_system = normalize_draft_datetime(end_system)
+    payload = {
+        "log_date": normalized_log_date.isoformat(),
+        "start_playtime": normalize_draft_text(start_playtime),
+        "end_playtime": normalize_draft_text(end_playtime),
+        "clues_completed": clamp_positive_int(clues_completed, default=10),
+        "notes": normalize_draft_text(notes),
+        "start_system": normalized_start_system.isoformat() if normalized_start_system else None,
+        "end_system": normalized_end_system.isoformat() if normalized_end_system else None,
+        "updated_at": now_local().isoformat(),
+    }
+    state_df = pd.DataFrame([payload], columns=list(COMP_LOGGER_STATE_COLS))
+    gsb.replace_sheet(COMP_LOGGER_STATE_SHEET, list(COMP_LOGGER_STATE_COLS), state_df)
 
 
 def load_goal_progress_state() -> Dict[str, Any]:
@@ -1279,25 +1448,29 @@ COMP_COLS = (
 def ss_init() -> None:
     goal_progress_state = load_goal_progress_state()
     goal_settings_state = load_goal_settings_state()
+    acq_logger_state, acq_logger_error = load_acq_logger_state()
+    comp_logger_state, comp_logger_error = load_comp_logger_state()
 
-    st.session_state.setdefault("acq_start_system", None)
-    st.session_state.setdefault("acq_end_system", None)
-    st.session_state.setdefault("comp_start_system", None)
-    st.session_state.setdefault("comp_end_system", None)
+    st.session_state.setdefault("acq_draft_error", acq_logger_error)
+    st.session_state.setdefault("comp_draft_error", comp_logger_error)
+    st.session_state.setdefault("acq_start_system", acq_logger_state.get("start_system"))
+    st.session_state.setdefault("acq_end_system", acq_logger_state.get("end_system"))
+    st.session_state.setdefault("comp_start_system", comp_logger_state.get("start_system"))
+    st.session_state.setdefault("comp_end_system", comp_logger_state.get("end_system"))
 
-    st.session_state.setdefault("w_acq_date", today_local())
-    st.session_state.setdefault("w_acq_start_play", "")
-    st.session_state.setdefault("w_acq_end_play", "")
-    st.session_state.setdefault("w_acq_start_blood", None)
-    st.session_state.setdefault("w_acq_end_blood", None)
-    st.session_state.setdefault("w_acq_clues", DEFAULT_CLUES_PER_TRIP)
-    st.session_state.setdefault("w_acq_notes", "")
+    st.session_state.setdefault("w_acq_date", acq_logger_state.get("log_date") or today_local())
+    st.session_state.setdefault("w_acq_start_play", acq_logger_state.get("start_playtime", ""))
+    st.session_state.setdefault("w_acq_end_play", acq_logger_state.get("end_playtime", ""))
+    st.session_state.setdefault("w_acq_start_blood", acq_logger_state.get("start_bloods"))
+    st.session_state.setdefault("w_acq_end_blood", acq_logger_state.get("end_bloods"))
+    st.session_state.setdefault("w_acq_clues", acq_logger_state.get("clues", DEFAULT_CLUES_PER_TRIP))
+    st.session_state.setdefault("w_acq_notes", acq_logger_state.get("notes", ""))
 
-    st.session_state.setdefault("w_comp_date", today_local())
-    st.session_state.setdefault("w_comp_start_play", "")
-    st.session_state.setdefault("w_comp_end_play", "")
-    st.session_state.setdefault("w_comp_completed", 10)
-    st.session_state.setdefault("w_comp_notes", "")
+    st.session_state.setdefault("w_comp_date", comp_logger_state.get("log_date") or today_local())
+    st.session_state.setdefault("w_comp_start_play", comp_logger_state.get("start_playtime", ""))
+    st.session_state.setdefault("w_comp_end_play", comp_logger_state.get("end_playtime", ""))
+    st.session_state.setdefault("w_comp_completed", comp_logger_state.get("clues_completed", 10))
+    st.session_state.setdefault("w_comp_notes", comp_logger_state.get("notes", ""))
 
     st.session_state.setdefault("pending_apply", False)
     st.session_state.setdefault("pending", {})
@@ -1314,6 +1487,94 @@ def apply_pending_before_widgets() -> None:
             st.session_state[k] = v
         st.session_state["pending"] = {}
         st.session_state["pending_apply"] = False
+
+
+def queue_pending_updates(updates: Dict[str, Any]) -> None:
+    pending = st.session_state.get("pending")
+    merged = dict(pending) if isinstance(pending, dict) else {}
+    merged.update(updates)
+    st.session_state["pending"] = merged
+    st.session_state["pending_apply"] = True
+
+
+def persist_acq_logger_state_values(
+    *,
+    log_date: Any,
+    start_playtime: Any,
+    end_playtime: Any,
+    start_bloods: Any,
+    end_bloods: Any,
+    clues: Any,
+    notes: Any,
+    start_system: Any,
+    end_system: Any,
+) -> None:
+    try:
+        save_acq_logger_state(
+            log_date=log_date,
+            start_playtime=start_playtime,
+            end_playtime=end_playtime,
+            start_bloods=start_bloods,
+            end_bloods=end_bloods,
+            clues=clues,
+            notes=notes,
+            start_system=start_system,
+            end_system=end_system,
+        )
+        st.session_state["acq_draft_error"] = None
+    except Exception as ex:
+        st.session_state["acq_draft_error"] = f"Could not sync acquisition draft to Google Sheets: {ex}"
+
+
+def persist_comp_logger_state_values(
+    *,
+    log_date: Any,
+    start_playtime: Any,
+    end_playtime: Any,
+    clues_completed: Any,
+    notes: Any,
+    start_system: Any,
+    end_system: Any,
+) -> None:
+    try:
+        save_comp_logger_state(
+            log_date=log_date,
+            start_playtime=start_playtime,
+            end_playtime=end_playtime,
+            clues_completed=clues_completed,
+            notes=notes,
+            start_system=start_system,
+            end_system=end_system,
+        )
+        st.session_state["comp_draft_error"] = None
+    except Exception as ex:
+        st.session_state["comp_draft_error"] = f"Could not sync completion draft to Google Sheets: {ex}"
+
+
+def persist_acq_logger_state() -> None:
+    persist_acq_logger_state_values(
+        log_date=st.session_state.get("w_acq_date"),
+        start_playtime=st.session_state.get("w_acq_start_play"),
+        end_playtime=st.session_state.get("w_acq_end_play"),
+        start_bloods=st.session_state.get("w_acq_start_blood"),
+        end_bloods=st.session_state.get("w_acq_end_blood"),
+        clues=st.session_state.get("w_acq_clues"),
+        notes=st.session_state.get("w_acq_notes"),
+        start_system=st.session_state.get("acq_start_system"),
+        end_system=st.session_state.get("acq_end_system"),
+    )
+
+
+def persist_comp_logger_state() -> None:
+    persist_comp_logger_state_values(
+        log_date=st.session_state.get("w_comp_date"),
+        start_playtime=st.session_state.get("w_comp_start_play"),
+        end_playtime=st.session_state.get("w_comp_end_play"),
+        clues_completed=st.session_state.get("w_comp_completed"),
+        notes=st.session_state.get("w_comp_notes"),
+        start_system=st.session_state.get("comp_start_system"),
+        end_system=st.session_state.get("comp_end_system"),
+    )
 
 
 ss_init()
@@ -1655,9 +1916,11 @@ with st.sidebar:
     def acq_start_now() -> None:
         st.session_state["acq_start_system"] = now_local()
         st.session_state["acq_end_system"] = None
+        persist_acq_logger_state()
 
     def acq_end_now() -> None:
         st.session_state["acq_end_system"] = now_local()
+        persist_acq_logger_state()
 
     acq_btn_col1, acq_btn_col2 = st.columns(2)
     with acq_btn_col1:
@@ -1751,31 +2014,56 @@ with st.sidebar:
         append_row(ACQ_CSV, ACQ_COLS, row)
         clear_loaded_data_cache()
 
-        st.session_state["pending"] = {
+        next_state = {
+            "w_acq_date": log_date,
             "w_acq_start_play": end_play if end_play else st.session_state.get("w_acq_start_play", ""),
             "w_acq_end_play": "",
             "w_acq_start_blood": end_blood,
             "w_acq_end_blood": None,
+            "w_acq_clues": clues,
             "w_acq_notes": "",
+            "acq_start_system": ee if ee else st.session_state.get("acq_start_system"),
+            "acq_end_system": None,
         }
-        st.session_state["pending_apply"] = True
+        queue_pending_updates(next_state)
+        persist_acq_logger_state_values(
+            log_date=next_state["w_acq_date"],
+            start_playtime=next_state["w_acq_start_play"],
+            end_playtime=next_state["w_acq_end_play"],
+            start_bloods=next_state["w_acq_start_blood"],
+            end_bloods=next_state["w_acq_end_blood"],
+            clues=next_state["w_acq_clues"],
+            notes=next_state["w_acq_notes"],
+            start_system=next_state["acq_start_system"],
+            end_system=next_state["acq_end_system"],
+        )
 
-        if ee:
-            st.session_state["acq_start_system"] = ee
-        st.session_state["acq_end_system"] = None
+    st.date_input("Date", key="w_acq_date", on_change=persist_acq_logger_state)
+    st.text_input("Start playtime (HH.mm)", key="w_acq_start_play", placeholder="", on_change=persist_acq_logger_state)
+    st.text_input("End playtime (HH.mm)", key="w_acq_end_play", placeholder="", on_change=persist_acq_logger_state)
+    st.number_input(
+        "Start bloods",
+        min_value=0,
+        step=1,
+        value=None,
+        key="w_acq_start_blood",
+        on_change=persist_acq_logger_state,
+    )
+    st.number_input(
+        "End bloods",
+        min_value=0,
+        step=1,
+        value=None,
+        key="w_acq_end_blood",
+        on_change=persist_acq_logger_state,
+    )
+    st.number_input("Clues obtained", min_value=1, step=1, key="w_acq_clues", on_change=persist_acq_logger_state)
+    st.text_area("Notes", key="w_acq_notes", height=72, placeholder="", on_change=persist_acq_logger_state)
+    st.caption("Duration uses playtime if both are entered; otherwise uses system Start/End.")
+    if st.session_state.get("acq_draft_error"):
+        st.error(st.session_state["acq_draft_error"])
 
-    with st.form("acquisition_logger_form", clear_on_submit=False):
-        st.date_input("Date", key="w_acq_date")
-        st.text_input("Start playtime (HH.mm)", key="w_acq_start_play", placeholder="")
-        st.text_input("End playtime (HH.mm)", key="w_acq_end_play", placeholder="")
-        st.number_input("Start bloods", min_value=0, step=1, value=None, key="w_acq_start_blood")
-        st.number_input("End bloods", min_value=0, step=1, value=None, key="w_acq_end_blood")
-        st.number_input("Clues obtained", min_value=1, step=1, key="w_acq_clues")
-        st.text_area("Notes", key="w_acq_notes", height=72, placeholder="")
-        st.caption("Duration uses playtime if both are entered; otherwise uses system Start/End.")
-        acq_submit = st.form_submit_button("Save Acquisition Trip", type="primary", width="stretch")
-
-    if acq_submit:
+    if st.button("Save Acquisition Trip", type="primary", width="stretch", key="btn_save_acq_trip"):
         try:
             save_acq()
             st.success("Saved acquisition trip.")
@@ -1789,9 +2077,11 @@ with st.sidebar:
     def comp_start_now() -> None:
         st.session_state["comp_start_system"] = now_local()
         st.session_state["comp_end_system"] = None
+        persist_comp_logger_state()
 
     def comp_end_now() -> None:
         st.session_state["comp_end_system"] = now_local()
+        persist_comp_logger_state()
 
     comp_btn_col1, comp_btn_col2 = st.columns(2)
     with comp_btn_col1:
@@ -1861,25 +2151,55 @@ with st.sidebar:
         append_row(COMP_CSV, COMP_COLS, row)
         clear_loaded_data_cache()
 
-        pending = {"w_comp_end_play": "", "w_comp_notes": ""}
+        next_state = {
+            "w_comp_date": log_date,
+            "w_comp_end_play": "",
+            "w_comp_completed": completed,
+            "w_comp_notes": "",
+            "comp_start_system": ee if ee else st.session_state.get("comp_start_system"),
+            "comp_end_system": None,
+        }
         if end_play:
-            pending["w_comp_start_play"] = end_play
-        if ee:
-            st.session_state["comp_start_system"] = ee
-        st.session_state["comp_end_system"] = None
-        st.session_state["pending"] = pending
-        st.session_state["pending_apply"] = True
+            next_state["w_comp_start_play"] = end_play
+        else:
+            next_state["w_comp_start_play"] = st.session_state.get("w_comp_start_play", "")
+        queue_pending_updates(next_state)
+        persist_comp_logger_state_values(
+            log_date=next_state["w_comp_date"],
+            start_playtime=next_state["w_comp_start_play"],
+            end_playtime=next_state["w_comp_end_play"],
+            clues_completed=next_state["w_comp_completed"],
+            notes=next_state["w_comp_notes"],
+            start_system=next_state["comp_start_system"],
+            end_system=next_state["comp_end_system"],
+        )
 
-    with st.form("completion_logger_form", clear_on_submit=False):
-        st.date_input("Date", key="w_comp_date")
-        st.text_input("Start playtime (HH.mm)", key="w_comp_start_play", placeholder="")
-        st.text_input("End playtime (HH.mm)", key="w_comp_end_play", placeholder="")
-        st.number_input("Caskets completed", min_value=1, step=1, key="w_comp_completed")
-        st.text_area("Notes", key="w_comp_notes", height=72, placeholder="")
-        st.caption("Duration uses playtime if both are entered; otherwise uses system Start/End.")
-        comp_submit = st.form_submit_button("Save Completion Session", type="primary", width="stretch")
+    st.date_input("Date", key="w_comp_date", on_change=persist_comp_logger_state)
+    st.text_input(
+        "Start playtime (HH.mm)",
+        key="w_comp_start_play",
+        placeholder="",
+        on_change=persist_comp_logger_state,
+    )
+    st.text_input(
+        "End playtime (HH.mm)",
+        key="w_comp_end_play",
+        placeholder="",
+        on_change=persist_comp_logger_state,
+    )
+    st.number_input(
+        "Caskets completed",
+        min_value=1,
+        step=1,
+        key="w_comp_completed",
+        on_change=persist_comp_logger_state,
+    )
+    st.text_area("Notes", key="w_comp_notes", height=72, placeholder="", on_change=persist_comp_logger_state)
+    st.caption("Duration uses playtime if both are entered; otherwise uses system Start/End.")
+    if st.session_state.get("comp_draft_error"):
+        st.error(st.session_state["comp_draft_error"])
 
-    if comp_submit:
+    if st.button("Save Completion Session", type="primary", width="stretch", key="btn_save_comp_session"):
         try:
             save_comp()
             st.success("Saved completion session.")

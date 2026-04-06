@@ -14,6 +14,8 @@ ACQ_SHEET = "acquisition_trips"
 COMP_SHEET = "completion_sessions"
 GOAL_PROGRESS_STATE_SHEET = "goal_progress_state"
 GOAL_SETTINGS_SHEET = "goal_settings"
+ACQ_LOGGER_STATE_SHEET = "acquisition_logger_state"
+COMP_LOGGER_STATE_SHEET = "completion_logger_state"
 
 # Scopes consistent with service-account write access for Sheets/Drive.
 SCOPES = [
