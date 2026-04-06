@@ -227,6 +227,32 @@ div.st-key-btn_goal_start_point button {
   word-break: normal !important;
   text-overflow: clip !important;
 }
+div.st-key-btn_acq_clear_start button,
+div.st-key-btn_acq_clear_end button,
+div.st-key-btn_comp_clear_start button,
+div.st-key-btn_comp_clear_end button {
+  background: #dc2626 !important;
+  border-color: #b91c1c !important;
+  color: #f8fafc !important;
+  min-height: 2rem !important;
+  padding: 0.1rem 0.45rem !important;
+  font-size: 0.74rem !important;
+  font-weight: 600 !important;
+}
+div.st-key-btn_acq_clear_start button:hover,
+div.st-key-btn_acq_clear_end button:hover,
+div.st-key-btn_comp_clear_start button:hover,
+div.st-key-btn_comp_clear_end button:hover {
+  background: #b91c1c !important;
+  border-color: #991b1b !important;
+  color: #fef2f2 !important;
+}
+div.st-key-btn_acq_clear_start button p,
+div.st-key-btn_acq_clear_end button p,
+div.st-key-btn_comp_clear_start button p,
+div.st-key-btn_comp_clear_end button p {
+  font-size: 0.74rem !important;
+}
 
 #ui-overflow-tooltip-float {
   position: fixed;
@@ -1922,6 +1948,14 @@ with st.sidebar:
         st.session_state["acq_end_system"] = now_local()
         persist_acq_logger_state()
 
+    def acq_clear_start_system() -> None:
+        st.session_state["acq_start_system"] = None
+        persist_acq_logger_state()
+
+    def acq_clear_end_system() -> None:
+        st.session_state["acq_end_system"] = None
+        persist_acq_logger_state()
+
     acq_btn_col1, acq_btn_col2 = st.columns(2)
     with acq_btn_col1:
         st.button("Start Now", on_click=acq_start_now, width="stretch", key="btn_acq_start")
@@ -1934,6 +1968,11 @@ with st.sidebar:
         f"System start: **{s0.strftime('%Y-%m-%d %H:%M:%S') if s0 else '—'}**  \n"
         f"System end: **{e0.strftime('%Y-%m-%d %H:%M:%S') if e0 else '—'}**"
     )
+    acq_clear_col1, acq_clear_col2 = st.columns(2)
+    with acq_clear_col1:
+        st.button("Clear Start", on_click=acq_clear_start_system, width="stretch", key="btn_acq_clear_start")
+    with acq_clear_col2:
+        st.button("Clear End", on_click=acq_clear_end_system, width="stretch", key="btn_acq_clear_end")
 
     def save_acq() -> None:
         df = load_df(ACQ_CSV, ACQ_COLS, SESSION_CACHE_KEY)
@@ -2083,6 +2122,14 @@ with st.sidebar:
         st.session_state["comp_end_system"] = now_local()
         persist_comp_logger_state()
 
+    def comp_clear_start_system() -> None:
+        st.session_state["comp_start_system"] = None
+        persist_comp_logger_state()
+
+    def comp_clear_end_system() -> None:
+        st.session_state["comp_end_system"] = None
+        persist_comp_logger_state()
+
     comp_btn_col1, comp_btn_col2 = st.columns(2)
     with comp_btn_col1:
         st.button("Start Now", on_click=comp_start_now, width="stretch", key="btn_comp_start")
@@ -2095,6 +2142,11 @@ with st.sidebar:
         f"System start: **{s1.strftime('%Y-%m-%d %H:%M:%S') if s1 else '—'}**  \n"
         f"System end: **{e1.strftime('%Y-%m-%d %H:%M:%S') if e1 else '—'}**"
     )
+    comp_clear_col1, comp_clear_col2 = st.columns(2)
+    with comp_clear_col1:
+        st.button("Clear Start", on_click=comp_clear_start_system, width="stretch", key="btn_comp_clear_start")
+    with comp_clear_col2:
+        st.button("Clear End", on_click=comp_clear_end_system, width="stretch", key="btn_comp_clear_end")
 
     def save_comp() -> None:
         df = load_df(COMP_CSV, COMP_COLS, SESSION_CACHE_KEY)
