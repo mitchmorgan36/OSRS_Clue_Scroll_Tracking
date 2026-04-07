@@ -2484,9 +2484,9 @@ with tab_combo:
         )
 
         a1, a2, a3, a4, _a5 = st.columns(5)
-        a1.metric("Acquire min / clue", f"{end_to_end_sum['acquire_minutes_per_clue']:.2f}")
-        a2.metric("Complete min / casket", f"{end_to_end_sum['complete_minutes_per_casket']:.2f}")
-        a3.metric("Total min / casket", f"{end_to_end_sum['total_minutes_per_casket']:.2f}")
+        a1.metric("Acquire time / clue", minutes_to_metric_duration(end_to_end_sum["acquire_minutes_per_clue"]))
+        a2.metric("Complete time / casket", minutes_to_metric_duration(end_to_end_sum["complete_minutes_per_casket"]))
+        a3.metric("Total time / casket", minutes_to_metric_duration(end_to_end_sum["total_minutes_per_casket"]))
         a4.metric("Caskets / hour", f"{end_to_end_sum['end_to_end_caskets_per_hour']:.2f}")
 
         st.divider()
