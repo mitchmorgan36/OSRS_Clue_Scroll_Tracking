@@ -989,13 +989,16 @@ def coerce_numeric(df: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
     return out
 
 
+def make_chart_legend_below(y: float = -0.22) -> dict:
+    return dict(orientation="h", yanchor="top", y=y, xanchor="center", x=0.5)
+
 
 def make_line_layout(title: str, x_title: str, y_title: str, y2_title: str | None = None, height: int = 380) -> dict:
     layout = dict(
         title=title,
         height=height,
-        margin=dict(l=40, r=40, t=48, b=40),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+        margin=dict(l=40, r=40, t=64, b=120),
+        legend=make_chart_legend_below(),
         xaxis=dict(title=x_title),
         yaxis=dict(title=y_title),
     )
@@ -1092,6 +1095,7 @@ def prepare_comp_metrics(df: pd.DataFrame) -> pd.DataFrame:
     d["minutes_per_casket"] = (d["duration_seconds"] / 60.0).div(completed)
     d["caskets_per_hour"] = d["clues_per_hour"].where(d["clues_per_hour"].notna(), d["clues_completed"].div(hours))
     d["rolling_10_session_avg_minutes_per_casket"] = d["minutes_per_casket"].rolling(window=10, min_periods=1).mean()
+    d["rolling_10_session_avg_caskets_per_hour"] = d["caskets_per_hour"].rolling(window=10, min_periods=1).mean()
     d["duration"] = d["duration_seconds"].apply(seconds_to_hhmm)
     d["log_date"] = d["log_date"].dt.date
     return d
@@ -1141,11 +1145,6 @@ def build_acq_minutes_per_clue_chart(df: pd.DataFrame) -> go.Figure:
     d = df.dropna(subset=["trip_id", "minutes_per_clue"]).sort_values("trip_id").copy()
     fig = go.Figure()
     fig.update_layout(**make_line_layout("Minutes per clue by trip", "Trip #", "Minutes per clue", height=420))
-    fig.update_layout(
-        margin=dict(l=40, r=40, t=95, b=40),
-        title=dict(y=0.97),
-        legend=dict(orientation="h", yanchor="bottom", y=1.12, xanchor="left", x=0),
-    )
     if d.empty:
         return fig
 
@@ -1189,12 +1188,7 @@ def build_acq_profitability_chart(df: pd.DataFrame) -> go.Figure:
     d = df.dropna(subset=["trip_id"]).sort_values("trip_id").copy()
     fig = go.Figure()
     fig.update_layout(
-        **make_line_layout("Acquisition GP per clue profitability by trip", "Trip #", "GP per clue", height=360)
-    )
-    fig.update_layout(
-        margin=dict(l=40, r=40, t=95, b=40),
-        title=dict(y=0.97),
-        legend=dict(orientation="h", yanchor="bottom", y=1.12, xanchor="left", x=0),
+        **make_line_layout("GP cost per clue by trip", "Trip #", "GP per clue", height=420)
     )
     if d.empty:
         return fig
@@ -1215,9 +1209,21 @@ def build_acq_profitability_chart(df: pd.DataFrame) -> go.Figure:
             x=d["trip_id"],
             y=d["rolling_10_trip_avg_gp_cost_per_clue"],
             mode="lines",
-            name="Rolling 10-trip avg GP cost per clue",
+            name="Rolling 10-trip avg",
             line=dict(color="#7c2d12", width=3, dash="dash"),
             hovertemplate="Trip %{x}<br>Rolling GP cost/clue: %{y:,.0f}<extra></extra>",
+        )
+    )
+
+    overall_avg = float(d["gp_cost_per_clue"].mean())
+    fig.add_trace(
+        go.Scatter(
+            x=d["trip_id"],
+            y=[overall_avg] * len(d),
+            mode="lines",
+            name="Overall avg",
+            line=dict(color="#f59e0b", width=2, dash="dot"),
+            hovertemplate="Trip %{x}<br>Overall GP cost/clue: %{y:,.0f}<extra></extra>",
         )
     )
     return fig
@@ -1228,11 +1234,6 @@ def build_completion_minutes_per_casket_chart(df: pd.DataFrame) -> go.Figure:
     fig = go.Figure()
     fig.update_layout(
         **make_line_layout("Minutes per casket by session", "Session #", "Minutes per casket", height=420)
-    )
-    fig.update_layout(
-        margin=dict(l=40, r=40, t=95, b=40),
-        title=dict(y=0.97),
-        legend=dict(orientation="h", yanchor="bottom", y=1.12, xanchor="left", x=0),
     )
     if d.empty:
         return fig
@@ -1258,13 +1259,25 @@ def build_completion_minutes_per_casket_chart(df: pd.DataFrame) -> go.Figure:
             hovertemplate="Rolling avg: %{y:.2f} min/casket<extra></extra>",
         )
     )
+
+    overall_avg = float(d["minutes_per_casket"].mean())
+    fig.add_trace(
+        go.Scatter(
+            x=d["session_id"],
+            y=[overall_avg] * len(d),
+            mode="lines",
+            name="Overall avg",
+            line=dict(color="#99f6e4", width=2, dash="dot"),
+            hovertemplate="Overall avg: %{y:.2f} min/casket<extra></extra>",
+        )
+    )
     return fig
 
 
 def build_completion_caskets_per_hour_chart(df: pd.DataFrame) -> go.Figure:
     d = df.dropna(subset=["session_id", "caskets_per_hour"]).sort_values("session_id").copy()
     fig = go.Figure()
-    fig.update_layout(**make_line_layout("Caskets per hour by session", "Session #", "Caskets per hour", height=340))
+    fig.update_layout(**make_line_layout("Caskets per hour by session", "Session #", "Caskets per hour", height=420))
     if d.empty:
         return fig
 
@@ -1277,6 +1290,28 @@ def build_completion_caskets_per_hour_chart(df: pd.DataFrame) -> go.Figure:
             line=dict(color="#047857", width=3),
             marker=dict(color="#047857", size=7),
             hovertemplate="Session %{x}<br>Caskets/hr: %{y:.2f}<extra></extra>",
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=d["session_id"],
+            y=d["rolling_10_session_avg_caskets_per_hour"],
+            mode="lines",
+            name="Rolling 10-session avg",
+            line=dict(color="#6ee7b7", width=2.5, dash="dash"),
+            hovertemplate="Rolling avg: %{y:.2f} caskets/hr<extra></extra>",
+        )
+    )
+
+    overall_avg = float(d["caskets_per_hour"].mean())
+    fig.add_trace(
+        go.Scatter(
+            x=d["session_id"],
+            y=[overall_avg] * len(d),
+            mode="lines",
+            name="Overall avg",
+            line=dict(color="#a7f3d0", width=2, dash="dot"),
+            hovertemplate="Overall avg: %{y:.2f} caskets/hr<extra></extra>",
         )
     )
     return fig
@@ -1377,7 +1412,7 @@ def build_end_to_end_time_breakdown_pie(end_to_end_sum: Dict[str, Any]) -> go.Fi
         title="Time per casket split",
         height=430,
         margin=dict(l=20, r=20, t=90, b=95),
-        legend=dict(orientation="h", yanchor="top", y=-0.08, xanchor="center", x=0.5),
+        legend=make_chart_legend_below(y=-0.08),
     )
     return fig
 
@@ -1419,8 +1454,8 @@ def build_end_to_end_cph_chart(trend_df: pd.DataFrame) -> go.Figure:
         )
     )
     fig.update_layout(
-        margin=dict(l=40, r=40, t=48, b=88),
-        legend=dict(orientation="h", yanchor="top", y=-0.22, xanchor="center", x=0.5),
+        margin=dict(l=40, r=40, t=64, b=120),
+        legend=make_chart_legend_below(),
         xaxis=dict(
             title="Date",
             type="category",
@@ -1487,8 +1522,8 @@ def build_end_to_end_minutes_chart(trend_df: pd.DataFrame) -> go.Figure:
         )
     )
     fig.update_layout(
-        margin=dict(l=40, r=40, t=48, b=88),
-        legend=dict(orientation="h", yanchor="top", y=-0.22, xanchor="center", x=0.5),
+        margin=dict(l=40, r=40, t=64, b=120),
+        legend=make_chart_legend_below(),
         xaxis=dict(
             title="Date",
             type="category",
@@ -1530,7 +1565,7 @@ def build_end_to_end_income_source_pie(end_to_end_sum: Dict[str, Any]) -> go.Fig
         title="Estimated GP sources per casket",
         height=430,
         margin=dict(l=20, r=20, t=90, b=95),
-        legend=dict(orientation="h", yanchor="top", y=-0.08, xanchor="center", x=0.5),
+        legend=make_chart_legend_below(y=-0.08),
     )
     return fig
 
