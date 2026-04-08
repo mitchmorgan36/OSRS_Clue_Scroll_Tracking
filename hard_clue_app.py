@@ -24,6 +24,7 @@ COMP_CSV = os.path.join(DATA_DIR, "hard_clue_completion.csv")
 
 GOAL_CASKETS = 650
 DEFAULT_CLUES_PER_TRIP = 5
+END_TO_END_RECENT_CASKET_WINDOW = 50
 GOAL_HEADER_CONTROL_WIDTH_PX = 200
 GOAL_HEADER_CONTROLS_CONTAINER_WIDTH_PX = (GOAL_HEADER_CONTROL_WIDTH_PX * 2) + 24
 
@@ -938,6 +939,47 @@ def rolling_mean(series: pd.Series, window: int) -> pd.Series:
     return series.rolling(window=window, min_periods=1).mean()
 
 
+def trailing_weighted_minutes_per_casket(
+    seconds: pd.Series,
+    caskets: pd.Series,
+    window_caskets: int,
+) -> tuple[pd.Series, pd.Series]:
+    seconds_values = pd.to_numeric(seconds, errors="coerce").fillna(0).tolist()
+    casket_values = pd.to_numeric(caskets, errors="coerce").fillna(0).tolist()
+    window_caskets = max(1, int(window_caskets))
+
+    minutes_per_casket = []
+    caskets_in_window = []
+    for idx in range(len(casket_values)):
+        included_caskets = 0.0
+        included_seconds = 0.0
+
+        for prev_idx in range(idx, -1, -1):
+            batch_caskets = float(casket_values[prev_idx])
+            batch_seconds = float(seconds_values[prev_idx])
+            if batch_caskets <= 0:
+                continue
+
+            remaining_caskets = window_caskets - included_caskets
+            take_caskets = min(batch_caskets, remaining_caskets)
+            included_caskets += take_caskets
+            included_seconds += (batch_seconds / batch_caskets) * take_caskets
+
+            if included_caskets >= window_caskets:
+                break
+
+        if included_caskets > 0:
+            minutes_per_casket.append((included_seconds / included_caskets) / 60.0)
+            caskets_in_window.append(included_caskets)
+        else:
+            minutes_per_casket.append(float("nan"))
+            caskets_in_window.append(0.0)
+
+    return (
+        pd.Series(minutes_per_casket, index=seconds.index),
+        pd.Series(caskets_in_window, index=seconds.index),
+    )
+
 
 def coerce_numeric(df: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
     out = df.copy()
@@ -1240,7 +1282,11 @@ def build_completion_caskets_per_hour_chart(df: pd.DataFrame) -> go.Figure:
     return fig
 
 
-def build_end_to_end_trend_df(acq_df: pd.DataFrame, comp_df: pd.DataFrame) -> pd.DataFrame:
+def build_end_to_end_trend_df(
+    acq_df: pd.DataFrame,
+    comp_df: pd.DataFrame,
+    window_caskets: int = END_TO_END_RECENT_CASKET_WINDOW,
+) -> pd.DataFrame:
     acq = coerce_numeric(acq_df, ["duration_seconds", "clues"]).copy()
     comp = coerce_numeric(comp_df, ["duration_seconds", "clues_completed"]).copy()
     acq["log_date"] = pd.to_datetime(acq["log_date"], errors="coerce")
@@ -1273,20 +1319,33 @@ def build_end_to_end_trend_df(acq_df: pd.DataFrame, comp_df: pd.DataFrame) -> pd
     d["cum_acq_caskets"] = d["acq_caskets"].cumsum()
     d["cum_comp_seconds"] = d["comp_seconds"].cumsum()
     d["cum_comp_caskets"] = d["comp_caskets"].cumsum()
+    (
+        d["recent_acquire_minutes_per_casket"],
+        d["recent_acq_caskets_in_window"],
+    ) = trailing_weighted_minutes_per_casket(d["acq_seconds"], d["acq_caskets"], window_caskets)
+    (
+        d["recent_complete_minutes_per_casket"],
+        d["recent_comp_caskets_in_window"],
+    ) = trailing_weighted_minutes_per_casket(d["comp_seconds"], d["comp_caskets"], window_caskets)
     d = d[(d["cum_acq_caskets"] > 0) & (d["cum_comp_caskets"] > 0)].copy()
     if d.empty:
         return pd.DataFrame()
 
-    d["acquire_minutes_per_casket"] = (d["cum_acq_seconds"] / d["cum_acq_caskets"]) / 60.0
-    d["complete_minutes_per_casket"] = (d["cum_comp_seconds"] / d["cum_comp_caskets"]) / 60.0
-    d["total_minutes_per_casket"] = d["acquire_minutes_per_casket"] + d["complete_minutes_per_casket"]
-    d["end_to_end_caskets_per_hour"] = d["total_minutes_per_casket"].apply(lambda x: 60.0 / x if x > 0 else 0.0)
-    d["rolling_5_day_end_to_end_caskets_per_hour"] = (
-        d["end_to_end_caskets_per_hour"].rolling(window=5, min_periods=1).mean()
+    d["overall_acquire_minutes_per_casket"] = (d["cum_acq_seconds"] / d["cum_acq_caskets"]) / 60.0
+    d["overall_complete_minutes_per_casket"] = (d["cum_comp_seconds"] / d["cum_comp_caskets"]) / 60.0
+    d["overall_total_minutes_per_casket"] = (
+        d["overall_acquire_minutes_per_casket"] + d["overall_complete_minutes_per_casket"]
     )
-    d["rolling_5_day_total_minutes_per_casket"] = (
-        d["total_minutes_per_casket"].rolling(window=5, min_periods=1).mean()
+    d["overall_end_to_end_caskets_per_hour"] = d["overall_total_minutes_per_casket"].apply(
+        lambda x: 60.0 / x if x > 0 else 0.0
     )
+    d["recent_total_minutes_per_casket"] = (
+        d["recent_acquire_minutes_per_casket"] + d["recent_complete_minutes_per_casket"]
+    )
+    d["recent_end_to_end_caskets_per_hour"] = d["recent_total_minutes_per_casket"].apply(
+        lambda x: 60.0 / x if x > 0 else 0.0
+    )
+    d["window_caskets"] = int(window_caskets)
     d["date_label"] = d["date"].dt.strftime("%Y-%m-%d")
     return d
 
@@ -1299,7 +1358,7 @@ def build_end_to_end_time_breakdown_pie(end_to_end_sum: Dict[str, Any]) -> go.Fi
     labels = ["Acquisition time", "Completion time"]
     values = [max(0.0, acquire_minutes), max(0.0, complete_minutes)]
     if sum(values) <= 0:
-        fig.update_layout(title="Time breakdown per casket", height=360)
+        fig.update_layout(title="Time per casket split", height=360)
         return fig
 
     fig.add_trace(
@@ -1315,7 +1374,7 @@ def build_end_to_end_time_breakdown_pie(end_to_end_sum: Dict[str, Any]) -> go.Fi
         )
     )
     fig.update_layout(
-        title="Time breakdown per casket",
+        title="Time per casket split",
         height=430,
         margin=dict(l=20, r=20, t=90, b=95),
         legend=dict(orientation="h", yanchor="top", y=-0.08, xanchor="center", x=0.5),
@@ -1325,29 +1384,38 @@ def build_end_to_end_time_breakdown_pie(end_to_end_sum: Dict[str, Any]) -> go.Fi
 
 def build_end_to_end_cph_chart(trend_df: pd.DataFrame) -> go.Figure:
     fig = go.Figure()
-    fig.update_layout(**make_line_layout("Total caskets per hour", "Date", "Caskets per hour", height=380))
+    fig.update_layout(
+        **make_line_layout("End-to-end caskets per hour", "Date", "Caskets per hour", height=380)
+    )
     if trend_df.empty:
         return fig
 
+    window_caskets = int(trend_df["window_caskets"].dropna().iloc[-1])
+    hover_window_data = trend_df[["recent_acq_caskets_in_window", "recent_comp_caskets_in_window"]]
     fig.add_trace(
         go.Scatter(
             x=trend_df["date_label"],
-            y=trend_df["end_to_end_caskets_per_hour"],
+            y=trend_df["recent_end_to_end_caskets_per_hour"],
             mode="lines+markers",
-            name="End-to-end caskets/hr",
+            name=f"Recent pace (last {window_caskets} each)",
             line=dict(color="#dc2626", width=3),
             marker=dict(color="#dc2626", size=7),
-            hovertemplate="%{x}<br>End-to-end caskets/hr: %{y:.2f}<extra></extra>",
+            customdata=hover_window_data,
+            hovertemplate=(
+                "%{x}<br>Recent caskets/hr: %{y:.2f}"
+                "<br>Acquired clues in window: %{customdata[0]:.0f}"
+                "<br>Completed caskets in window: %{customdata[1]:.0f}<extra></extra>"
+            ),
         )
     )
     fig.add_trace(
         go.Scatter(
             x=trend_df["date_label"],
-            y=trend_df["rolling_5_day_end_to_end_caskets_per_hour"],
+            y=trend_df["overall_end_to_end_caskets_per_hour"],
             mode="lines",
-            name="Rolling 5-day avg",
-            line=dict(color="#f87171", width=3, dash="dash"),
-            hovertemplate="%{x}<br>Rolling 5-day caskets/hr: %{y:.2f}<extra></extra>",
+            name="All logged average",
+            line=dict(color="#64748b", width=2.5, dash="dot"),
+            hovertemplate="%{x}<br>All logged average: %{y:.2f} caskets/hr<extra></extra>",
         )
     )
     fig.update_layout(
@@ -1366,35 +1434,61 @@ def build_end_to_end_cph_chart(trend_df: pd.DataFrame) -> go.Figure:
 def build_end_to_end_minutes_chart(trend_df: pd.DataFrame) -> go.Figure:
     fig = go.Figure()
     fig.update_layout(
-        **make_line_layout("Total minutes per casket", "Date", "Minutes per casket", height=340)
+        **make_line_layout("End-to-end minutes per casket", "Date", "Minutes per casket", height=420)
     )
     if trend_df.empty:
         return fig
 
+    hover_window_data = trend_df[["recent_acq_caskets_in_window", "recent_comp_caskets_in_window"]]
     fig.add_trace(
         go.Scatter(
             x=trend_df["date_label"],
-            y=trend_df["total_minutes_per_casket"],
+            y=trend_df["recent_total_minutes_per_casket"],
             mode="lines+markers",
-            name="Total minutes per casket",
-            line=dict(color="#7c3aed", width=3),
-            marker=dict(color="#7c3aed", size=7),
-            hovertemplate="%{x}<br>Total min/casket: %{y:.2f}<extra></extra>",
+            name="Recent total",
+            line=dict(color="#dc2626", width=3),
+            marker=dict(color="#dc2626", size=7),
+            customdata=hover_window_data,
+            hovertemplate=(
+                "%{x}<br>Recent total: %{y:.2f} min/casket"
+                "<br>Acquired clues in window: %{customdata[0]:.0f}"
+                "<br>Completed caskets in window: %{customdata[1]:.0f}<extra></extra>"
+            ),
         )
     )
     fig.add_trace(
         go.Scatter(
             x=trend_df["date_label"],
-            y=trend_df["rolling_5_day_total_minutes_per_casket"],
+            y=trend_df["recent_acquire_minutes_per_casket"],
             mode="lines",
-            name="Rolling 5-day avg",
-            line=dict(color="#a78bfa", width=3, dash="dash"),
-            hovertemplate="%{x}<br>Rolling 5-day min/casket: %{y:.2f}<extra></extra>",
+            name="Recent acquisition",
+            line=dict(color="#1d4ed8", width=2.5),
+            hovertemplate="%{x}<br>Recent acquisition: %{y:.2f} min/clue<extra></extra>",
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=trend_df["date_label"],
+            y=trend_df["recent_complete_minutes_per_casket"],
+            mode="lines",
+            name="Recent completion",
+            line=dict(color="#0f766e", width=2.5),
+            hovertemplate="%{x}<br>Recent completion: %{y:.2f} min/casket<extra></extra>",
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=trend_df["date_label"],
+            y=trend_df["overall_total_minutes_per_casket"],
+            mode="lines",
+            name="All logged total average",
+            line=dict(color="#64748b", width=2.5, dash="dot"),
+            hovertemplate="%{x}<br>All logged total average: %{y:.2f} min/casket<extra></extra>",
         )
     )
     fig.update_layout(
         margin=dict(l=40, r=40, t=48, b=88),
-        legend=dict(orientation="h", yanchor="top", y=-0.28, xanchor="center", x=0.5),
+        legend=dict(orientation="h", yanchor="top", y=-0.22, xanchor="center", x=0.5),
         xaxis=dict(
             title="Date",
             type="category",
@@ -1412,13 +1506,13 @@ def build_end_to_end_income_source_pie(end_to_end_sum: Dict[str, Any]) -> go.Fig
     alch_gp = float(end_to_end_sum.get("expected_income_per_casket_alch") or 0.0)
 
     labels = [
-        "GP from rune armor drops",
-        "GP from chaos runes",
-        "GP from alching casket rewards",
+        "Rune armor drops",
+        "Chaos runes",
+        "Casket alch rewards",
     ]
     values = [max(0.0, rune_gp), max(0.0, chaos_gp), max(0.0, alch_gp)]
     if sum(values) <= 0:
-        fig.update_layout(title="Income source share toward net GP per casket", height=360)
+        fig.update_layout(title="Estimated GP sources per casket", height=360)
         return fig
 
     fig.add_trace(
@@ -1433,7 +1527,7 @@ def build_end_to_end_income_source_pie(end_to_end_sum: Dict[str, Any]) -> go.Fig
         )
     )
     fig.update_layout(
-        title="Income source share toward net GP per casket",
+        title="Estimated GP sources per casket",
         height=430,
         margin=dict(l=20, r=20, t=90, b=95),
         legend=dict(orientation="h", yanchor="top", y=-0.08, xanchor="center", x=0.5),
@@ -2516,6 +2610,11 @@ with tab_combo:
 
         st.divider()
         st.subheader("Charts")
+        st.caption(
+            f"End-to-end trend lines use the last up to {END_TO_END_RECENT_CASKET_WINDOW} acquired clues "
+            f"and last up to {END_TO_END_RECENT_CASKET_WINDOW} completed caskets, weighted by casket count. "
+            "The dotted gray line is the average from all logged data through each date."
+        )
         pie_col1, pie_col2 = st.columns(2)
         with pie_col1:
             st.plotly_chart(build_end_to_end_income_source_pie(end_to_end_sum), width="stretch")
