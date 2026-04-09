@@ -12,6 +12,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 import google_sheets_backend as gsb
+from weighted_metrics import rolling_weighted_ratio, weighted_ratio
 
 # ----------------------------
 # Config
@@ -1064,10 +1065,12 @@ def prepare_acq_metrics(df: pd.DataFrame) -> pd.DataFrame:
     )
     d["expected_net_gp_trip_acquisition"] = d["expected_combined_acquisition_gp_income"] - d["gp_cost"]
 
-    d["rolling_10_trip_avg_minutes_per_clue"] = d["minutes_per_clue"].rolling(window=10, min_periods=1).mean()
-    d["rolling_10_trip_avg_gp_cost_per_clue"] = (
-        d["gp_cost_per_clue"].rolling(window=10, min_periods=1).mean()
+    d["rolling_10_trip_avg_minutes_per_clue"] = rolling_weighted_ratio(
+        d["duration_seconds"] / 60.0,
+        d["clues"],
+        10,
     )
+    d["rolling_10_trip_avg_gp_cost_per_clue"] = rolling_weighted_ratio(d["gp_cost"], d["clues"], 10)
     d["duration"] = d["duration_seconds"].apply(seconds_to_hhmm)
     d["log_date"] = d["log_date"].dt.date
     return d
@@ -1094,8 +1097,16 @@ def prepare_comp_metrics(df: pd.DataFrame) -> pd.DataFrame:
 
     d["minutes_per_casket"] = (d["duration_seconds"] / 60.0).div(completed)
     d["caskets_per_hour"] = d["clues_per_hour"].where(d["clues_per_hour"].notna(), d["clues_completed"].div(hours))
-    d["rolling_10_session_avg_minutes_per_casket"] = d["minutes_per_casket"].rolling(window=10, min_periods=1).mean()
-    d["rolling_10_session_avg_caskets_per_hour"] = d["caskets_per_hour"].rolling(window=10, min_periods=1).mean()
+    d["rolling_10_session_avg_minutes_per_casket"] = rolling_weighted_ratio(
+        d["duration_seconds"] / 60.0,
+        d["clues_completed"],
+        10,
+    )
+    d["rolling_10_session_avg_caskets_per_hour"] = rolling_weighted_ratio(
+        d["clues_completed"],
+        d["duration_seconds"] / 3600.0,
+        10,
+    )
     d["duration"] = d["duration_seconds"].apply(seconds_to_hhmm)
     d["log_date"] = d["log_date"].dt.date
     return d
@@ -1170,7 +1181,7 @@ def build_acq_minutes_per_clue_chart(df: pd.DataFrame) -> go.Figure:
         )
     )
 
-    overall_avg = float(d["minutes_per_clue"].mean())
+    overall_avg = weighted_ratio(d["duration_seconds"] / 60.0, d["clues"])
     fig.add_trace(
         go.Scatter(
             x=d["trip_id"],
@@ -1215,7 +1226,7 @@ def build_acq_profitability_chart(df: pd.DataFrame) -> go.Figure:
         )
     )
 
-    overall_avg = float(d["gp_cost_per_clue"].mean())
+    overall_avg = weighted_ratio(d["gp_cost"], d["clues"])
     fig.add_trace(
         go.Scatter(
             x=d["trip_id"],
@@ -1260,7 +1271,7 @@ def build_completion_minutes_per_casket_chart(df: pd.DataFrame) -> go.Figure:
         )
     )
 
-    overall_avg = float(d["minutes_per_casket"].mean())
+    overall_avg = weighted_ratio(d["duration_seconds"] / 60.0, d["clues_completed"])
     fig.add_trace(
         go.Scatter(
             x=d["session_id"],
@@ -1303,7 +1314,7 @@ def build_completion_caskets_per_hour_chart(df: pd.DataFrame) -> go.Figure:
         )
     )
 
-    overall_avg = float(d["caskets_per_hour"].mean())
+    overall_avg = weighted_ratio(d["clues_completed"], d["duration_seconds"] / 3600.0)
     fig.add_trace(
         go.Scatter(
             x=d["session_id"],
