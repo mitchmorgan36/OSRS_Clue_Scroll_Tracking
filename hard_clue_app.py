@@ -77,6 +77,9 @@ RUNE_ARMOR_QUALIFYING_DROPS_PER_128_KILLS = 3
 CHAOS_RUNES_PER_DROP = 45
 CHAOS_DROP_KILLS_PER_DROP = 25.6
 CHAOS_RUNE_GP = 45
+DEATH_RUNES_PER_DROP = 15
+DEATH_DROP_KILLS_PER_DROP = 42.67
+DEATH_RUNE_GP = PRICE_DEATH
 
 RUNE_ARMOR_GP_PER_KILL = (
     RUNE_ARMOR_GP_PER_QUALIFYING_DROP * RUNE_ARMOR_QUALIFYING_DROPS_PER_128_KILLS / 128
@@ -85,7 +88,12 @@ RUNE_ARMOR_GP_PER_CLUE = RUNE_ARMOR_GP_PER_KILL * JELLY_KILLS_PER_HARD_CLUE
 CHAOS_RUNES_PER_KILL = CHAOS_RUNES_PER_DROP / CHAOS_DROP_KILLS_PER_DROP
 CHAOS_RUNE_GP_PER_KILL = CHAOS_RUNES_PER_KILL * CHAOS_RUNE_GP
 CHAOS_RUNE_GP_PER_CLUE = CHAOS_RUNE_GP_PER_KILL * JELLY_KILLS_PER_HARD_CLUE
-COMBINED_ACQUISITION_GP_INCOME_PER_CLUE = RUNE_ARMOR_GP_PER_CLUE + CHAOS_RUNE_GP_PER_CLUE
+DEATH_RUNES_PER_KILL = DEATH_RUNES_PER_DROP / DEATH_DROP_KILLS_PER_DROP
+DEATH_RUNE_GP_PER_KILL = DEATH_RUNES_PER_KILL * DEATH_RUNE_GP
+DEATH_RUNE_GP_PER_CLUE = DEATH_RUNE_GP_PER_KILL * JELLY_KILLS_PER_HARD_CLUE
+COMBINED_ACQUISITION_GP_INCOME_PER_CLUE = (
+    RUNE_ARMOR_GP_PER_CLUE + CHAOS_RUNE_GP_PER_CLUE + DEATH_RUNE_GP_PER_CLUE
+)
 
 # EV validation checks:
 # - rune_armor_gp_per_kill = 28573 * 3 / 128 = 669.6796875
@@ -93,13 +101,19 @@ COMBINED_ACQUISITION_GP_INCOME_PER_CLUE = RUNE_ARMOR_GP_PER_CLUE + CHAOS_RUNE_GP
 # - chaos_runes_per_kill = 45 / 25.6 = 1.7578125
 # - chaos_rune_gp_per_kill = 1.7578125 * 45 = 79.1015625
 # - chaos_rune_gp_per_clue = 79.1015625 * 60 = 4746.09375
-# - combined_acquisition_gp_income_per_clue = 40180.78125 + 4746.09375 = 44926.875
+# - death_runes_per_kill = 15 / 42.67 = 0.3515350363252871
+# - death_rune_gp_per_kill = 0.3515350363252871 * 200 = 70.30700726505742
+# - death_rune_gp_per_clue = 70.30700726505742 * 60 = 4218.420435903446
+# - combined_acquisition_gp_income_per_clue = 40180.78125 + 4746.09375 + 4218.420435903446 = 49145.29543590345
 assert abs(RUNE_ARMOR_GP_PER_KILL - 669.6796875) < 1e-12
 assert abs(RUNE_ARMOR_GP_PER_CLUE - 40180.78125) < 1e-12
 assert abs(CHAOS_RUNES_PER_KILL - 1.7578125) < 1e-12
 assert abs(CHAOS_RUNE_GP_PER_KILL - 79.1015625) < 1e-12
 assert abs(CHAOS_RUNE_GP_PER_CLUE - 4746.09375) < 1e-12
-assert abs(COMBINED_ACQUISITION_GP_INCOME_PER_CLUE - 44926.875) < 1e-12
+assert abs(DEATH_RUNES_PER_KILL - 0.3515350363252871) < 1e-12
+assert abs(DEATH_RUNE_GP_PER_KILL - 70.30700726505742) < 1e-12
+assert abs(DEATH_RUNE_GP_PER_CLUE - 4218.420435903446) < 1e-12
+assert abs(COMBINED_ACQUISITION_GP_INCOME_PER_CLUE - 49145.29543590345) < 1e-12
 
 # ----------------------------
 # UI tightening
@@ -1053,15 +1067,21 @@ def prepare_acq_metrics(df: pd.DataFrame) -> pd.DataFrame:
     d["chaos_runes_per_kill"] = CHAOS_RUNES_PER_KILL * eligible_flag
     d["chaos_rune_gp_per_kill"] = CHAOS_RUNE_GP_PER_KILL * eligible_flag
     d["chaos_rune_gp_per_clue"] = CHAOS_RUNE_GP_PER_CLUE * eligible_flag
-    d["combined_acquisition_gp_income_per_clue"] = d["rune_armor_gp_per_clue"] + d["chaos_rune_gp_per_clue"]
+    d["death_runes_per_kill"] = DEATH_RUNES_PER_KILL * eligible_flag
+    d["death_rune_gp_per_kill"] = DEATH_RUNE_GP_PER_KILL * eligible_flag
+    d["death_rune_gp_per_clue"] = DEATH_RUNE_GP_PER_CLUE * eligible_flag
+    d["combined_acquisition_gp_income_per_clue"] = (
+        d["rune_armor_gp_per_clue"] + d["chaos_rune_gp_per_clue"] + d["death_rune_gp_per_clue"]
+    )
     d["net_gp_per_clue_acquired"] = d["combined_acquisition_gp_income_per_clue"] - d["gp_cost_per_clue"]
 
     clue_counts = d["clues"].where(d["clues"] > 0, 0).fillna(0)
     d["expected_kills"] = clue_counts * JELLY_KILLS_PER_HARD_CLUE
     d["expected_rune_armor_gp"] = clue_counts * d["rune_armor_gp_per_clue"]
     d["expected_chaos_rune_gp"] = clue_counts * d["chaos_rune_gp_per_clue"]
+    d["expected_death_rune_gp"] = clue_counts * d["death_rune_gp_per_clue"]
     d["expected_combined_acquisition_gp_income"] = (
-        d["expected_rune_armor_gp"] + d["expected_chaos_rune_gp"]
+        d["expected_rune_armor_gp"] + d["expected_chaos_rune_gp"] + d["expected_death_rune_gp"]
     )
     d["expected_net_gp_trip_acquisition"] = d["expected_combined_acquisition_gp_income"] - d["gp_cost"]
 
@@ -1549,14 +1569,16 @@ def build_end_to_end_income_source_pie(end_to_end_sum: Dict[str, Any]) -> go.Fig
     fig = go.Figure()
     rune_gp = float(end_to_end_sum.get("rune_armor_gp_per_clue") or 0.0)
     chaos_gp = float(end_to_end_sum.get("chaos_rune_gp_per_clue") or 0.0)
+    death_gp = float(end_to_end_sum.get("death_rune_gp_per_clue") or 0.0)
     alch_gp = float(end_to_end_sum.get("expected_income_per_casket_alch") or 0.0)
 
     labels = [
         "Rune armor drops",
         "Chaos runes",
+        "Death runes",
         "Casket alch rewards",
     ]
-    values = [max(0.0, rune_gp), max(0.0, chaos_gp), max(0.0, alch_gp)]
+    values = [max(0.0, rune_gp), max(0.0, chaos_gp), max(0.0, death_gp), max(0.0, alch_gp)]
     if sum(values) <= 0:
         fig.update_layout(title="Estimated GP sources per casket", height=360)
         return fig
@@ -1789,9 +1811,13 @@ def summarize_acq(df: pd.DataFrame, goal_caskets: int) -> Dict[str, Any]:
     gp_cost_per_clue = total_gp / total_clues if total_clues > 0 else float("nan")
     total_expected_rune_armor_gp = eligible_income_clues * RUNE_ARMOR_GP_PER_CLUE
     total_expected_chaos_rune_gp = eligible_income_clues * CHAOS_RUNE_GP_PER_CLUE
-    total_expected_combined_acquisition_gp_income = total_expected_rune_armor_gp + total_expected_chaos_rune_gp
+    total_expected_death_rune_gp = eligible_income_clues * DEATH_RUNE_GP_PER_CLUE
+    total_expected_combined_acquisition_gp_income = (
+        total_expected_rune_armor_gp + total_expected_chaos_rune_gp + total_expected_death_rune_gp
+    )
     rune_armor_gp_per_clue = total_expected_rune_armor_gp / total_clues if total_clues > 0 else float("nan")
     chaos_rune_gp_per_clue = total_expected_chaos_rune_gp / total_clues if total_clues > 0 else float("nan")
+    death_rune_gp_per_clue = total_expected_death_rune_gp / total_clues if total_clues > 0 else float("nan")
     combined_acquisition_gp_income_per_clue = (
         total_expected_combined_acquisition_gp_income / total_clues if total_clues > 0 else float("nan")
     )
@@ -1804,8 +1830,9 @@ def summarize_acq(df: pd.DataFrame, goal_caskets: int) -> Dict[str, Any]:
     proj_seconds_remaining = remaining * avg_seconds_per_clue
     projected_rune_armor_gp_remaining = remaining * rune_armor_gp_per_clue
     projected_chaos_rune_gp_remaining = remaining * chaos_rune_gp_per_clue
+    projected_death_rune_gp_remaining = remaining * death_rune_gp_per_clue
     projected_combined_acquisition_income_remaining = (
-        projected_rune_armor_gp_remaining + projected_chaos_rune_gp_remaining
+        projected_rune_armor_gp_remaining + projected_chaos_rune_gp_remaining + projected_death_rune_gp_remaining
     )
     projected_acquisition_cost_remaining = remaining * gp_cost_per_clue
     projected_net_acquisition_gp_remaining = (
@@ -1825,11 +1852,13 @@ def summarize_acq(df: pd.DataFrame, goal_caskets: int) -> Dict[str, Any]:
         "eligible_income_clues": eligible_income_clues,
         "rune_armor_gp_per_clue": rune_armor_gp_per_clue,
         "chaos_rune_gp_per_clue": chaos_rune_gp_per_clue,
+        "death_rune_gp_per_clue": death_rune_gp_per_clue,
         "combined_acquisition_gp_income_per_clue": combined_acquisition_gp_income_per_clue,
         "gp_cost_per_clue": gp_cost_per_clue,
         "net_gp_per_clue_acquired": net_gp_per_clue_acquired,
         "total_expected_rune_armor_gp": total_expected_rune_armor_gp,
         "total_expected_chaos_rune_gp": total_expected_chaos_rune_gp,
+        "total_expected_death_rune_gp": total_expected_death_rune_gp,
         "total_expected_combined_acquisition_gp_income": total_expected_combined_acquisition_gp_income,
         "total_expected_net_acquisition_gp": total_expected_net_acquisition_gp,
         "remaining": remaining,
@@ -1837,6 +1866,7 @@ def summarize_acq(df: pd.DataFrame, goal_caskets: int) -> Dict[str, Any]:
         "proj_gp_remaining": proj_gp_remaining,
         "projected_rune_armor_gp_remaining": projected_rune_armor_gp_remaining,
         "projected_chaos_rune_gp_remaining": projected_chaos_rune_gp_remaining,
+        "projected_death_rune_gp_remaining": projected_death_rune_gp_remaining,
         "projected_combined_acquisition_income_remaining": projected_combined_acquisition_income_remaining,
         "projected_acquisition_cost_remaining": projected_acquisition_cost_remaining,
         "projected_net_acquisition_gp_remaining": projected_net_acquisition_gp_remaining,
@@ -1928,6 +1958,7 @@ def summarize_end_to_end(acq_sum: Dict[str, Any], comp_sum: Dict[str, Any], goal
         "end_to_end_gp_per_hour": end_to_end_gp_per_hour,
         "rune_armor_gp_per_clue": acq_sum["rune_armor_gp_per_clue"],
         "chaos_rune_gp_per_clue": acq_sum["chaos_rune_gp_per_clue"],
+        "death_rune_gp_per_clue": acq_sum["death_rune_gp_per_clue"],
         "combined_acquisition_gp_income_per_clue": expected_income_per_clue_acquisition,
         "expected_cost_per_clue_acquisition": expected_cost_per_clue_acquisition,
         "expected_income_per_casket_alch": expected_income_per_casket_alch,
@@ -2423,6 +2454,7 @@ tab_acq, tab_comp, tab_combo = st.tabs(["Acquisition", "Completion", "End-to-end
 with tab_acq:
     acq_rune_gp_per_clue = acq_sum.get("rune_armor_gp_per_clue", RUNE_ARMOR_GP_PER_CLUE) if acq_sum else RUNE_ARMOR_GP_PER_CLUE
     acq_chaos_gp_per_clue = acq_sum.get("chaos_rune_gp_per_clue", CHAOS_RUNE_GP_PER_CLUE) if acq_sum else CHAOS_RUNE_GP_PER_CLUE
+    acq_death_gp_per_clue = acq_sum.get("death_rune_gp_per_clue", DEATH_RUNE_GP_PER_CLUE) if acq_sum else DEATH_RUNE_GP_PER_CLUE
     acq_combined_gp_income_per_clue = (
         acq_sum.get("combined_acquisition_gp_income_per_clue", COMBINED_ACQUISITION_GP_INCOME_PER_CLUE)
         if acq_sum
@@ -2431,12 +2463,13 @@ with tab_acq:
     acq_gp_cost_per_clue = acq_sum.get("gp_cost_per_clue") if acq_sum else float("nan")
     acq_net_gp_per_clue = acq_sum.get("net_gp_per_clue_acquired") if acq_sum else float("nan")
 
-    p1, p2, p3, p4, p5 = st.columns(5)
+    p1, p2, p3, p4, p5, p6 = st.columns(6)
     p1.metric("GP per clue from rune armor drops", human_gp_or_na(acq_rune_gp_per_clue))
     p2.metric("GP per clue from Chaos rune drops", human_gp_or_na(acq_chaos_gp_per_clue))
-    p3.metric("Combined acquisition GP income per clue", human_gp_or_na(acq_combined_gp_income_per_clue))
-    p4.metric("GP cost per clue", human_gp_or_na(acq_gp_cost_per_clue))
-    p5.metric("Net GP per clue acquired", human_gp_or_na(acq_net_gp_per_clue))
+    p3.metric("GP per clue from Death rune drops", human_gp_or_na(acq_death_gp_per_clue))
+    p4.metric("Combined acquisition GP income per clue", human_gp_or_na(acq_combined_gp_income_per_clue))
+    p5.metric("GP cost per clue", human_gp_or_na(acq_gp_cost_per_clue))
+    p6.metric("Net GP per clue acquired", human_gp_or_na(acq_net_gp_per_clue))
 
     st.divider()
 
@@ -2503,6 +2536,7 @@ with tab_acq:
         disp["gp_spent_per_clue"] = disp["gp_spent_per_clue"].round(1)
         disp["expected_rune_armor_gp"] = disp["expected_rune_armor_gp"].round(0)
         disp["expected_chaos_rune_gp"] = disp["expected_chaos_rune_gp"].round(0)
+        disp["expected_death_rune_gp"] = disp["expected_death_rune_gp"].round(0)
         disp["expected_combined_acquisition_gp_income"] = disp["expected_combined_acquisition_gp_income"].round(0)
         disp["expected_net_gp_trip_acquisition"] = disp["expected_net_gp_trip_acquisition"].round(0)
         disp["gp_cost"] = disp["gp_cost"].round(0)
@@ -2520,6 +2554,7 @@ with tab_acq:
                     "gp_spent_per_clue",
                     "expected_rune_armor_gp",
                     "expected_chaos_rune_gp",
+                    "expected_death_rune_gp",
                     "expected_combined_acquisition_gp_income",
                     "expected_net_gp_trip_acquisition",
                     "bloods_used",
