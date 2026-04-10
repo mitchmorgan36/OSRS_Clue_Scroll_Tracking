@@ -1880,6 +1880,9 @@ goal_progress_completed = comp_since_progress_start
 goal_progress_remaining = max(0, goal_caskets - goal_progress_completed)
 goal_progress = min(1.0, goal_progress_completed / goal_caskets) if goal_caskets > 0 else 0.0
 clues_on_ground_since_progress_start = max(0, acq_since_progress_start - comp_since_progress_start)
+stacked_clues_completion_time_s = (
+    clues_on_ground_since_progress_start * float(comp_sum.get("avg_time_casket_s", 0.0) or 0.0)
+)
 
 acq_goal_remaining = max(0, goal_caskets - acq_since_progress_start)
 comp_goal_remaining = max(0, goal_caskets - comp_since_progress_start)
@@ -1970,6 +1973,7 @@ else:
 st.caption(
     f"Since start point: {acq_since_progress_start} clues acquired • {comp_since_progress_start} caskets completed"
     f" • {clues_on_ground_since_progress_start} clues stacked"
+    f" ({fmt_hours_minutes(stacked_clues_completion_time_s)} to complete)"
 )
 st.progress(
     goal_progress,
