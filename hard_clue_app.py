@@ -1,4 +1,3 @@
-import os
 import inspect
 from datetime import date, datetime
 from typing import Dict, Any
@@ -11,6 +10,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
+from end_to_end_metrics import build_end_to_end_trend_df
 import google_sheets_backend as gsb
 from weighted_metrics import rolling_weighted_ratio, weighted_ratio
 
@@ -18,10 +18,6 @@ from weighted_metrics import rolling_weighted_ratio, weighted_ratio
 # Config
 # ----------------------------
 st.set_page_config(page_title="Hard Clue Dashboard", layout="wide")
-
-DATA_DIR = "data"
-ACQ_CSV = os.path.join(DATA_DIR, "hard_clue_trips.csv")
-COMP_CSV = os.path.join(DATA_DIR, "hard_clue_completion.csv")
 
 GOAL_CASKETS = 650
 DEFAULT_CLUES_PER_TRIP = 5
@@ -37,6 +33,8 @@ GOAL_PROGRESS_STATE_COLS = (
 GOAL_PROGRESS_STATE_SHEET = getattr(gsb, "GOAL_PROGRESS_STATE_SHEET", "goal_progress_state")
 GOAL_SETTINGS_COLS = ("goal_caskets",)
 GOAL_SETTINGS_SHEET = getattr(gsb, "GOAL_SETTINGS_SHEET", "goal_settings")
+ACQ_SHEET = getattr(gsb, "ACQ_SHEET", "acquisition_trips")
+COMP_SHEET = getattr(gsb, "COMP_SHEET", "completion_sessions")
 ACQ_LOGGER_STATE_COLS = (
     "log_date",
     "start_playtime",
@@ -596,14 +594,6 @@ def inject_ui_dom_script() -> None:
     )
 
 
-# ----------------------------
-# Helpers
-# ----------------------------
-def ensure_data_dir() -> None:
-    os.makedirs(DATA_DIR, exist_ok=True)
-
-
-
 def clamp_nonnegative_int(value: Any, default: int = 0) -> int:
     try:
         out = int(value)
@@ -904,17 +894,8 @@ def today_local():
 
 
 @st.cache_data(show_spinner=False)
-def load_df(path: str, columns: tuple[str, ...], session_cache_key: str) -> pd.DataFrame:
-    if path == ACQ_CSV:
-        df = gsb.read_sheet_df(gsb.ACQ_SHEET, list(columns))
-    elif path == COMP_CSV:
-        df = gsb.read_sheet_df(gsb.COMP_SHEET, list(columns))
-    else:
-        ensure_data_dir()
-        if not os.path.exists(path):
-            return pd.DataFrame(columns=list(columns))
-        df = pd.read_csv(path)
-
+def load_df(sheet_name: str, columns: tuple[str, ...], session_cache_key: str) -> pd.DataFrame:
+    df = gsb.read_sheet_df(sheet_name, list(columns))
     for col in columns:
         if col not in df.columns:
             df[col] = ""
@@ -935,65 +916,13 @@ def get_session_cache_key() -> str:
 
 
 
-def append_row(path: str, columns: tuple[str, ...], row: Dict[str, Any]) -> None:
-    if path == ACQ_CSV:
-        gsb.append_row(gsb.ACQ_SHEET, list(columns), row)
-        return
-    if path == COMP_CSV:
-        gsb.append_row(gsb.COMP_SHEET, list(columns), row)
-        return
-
-    ensure_data_dir()
-    df = load_df(path, columns, get_session_cache_key())
-    df = pd.concat([df, pd.DataFrame([row])], ignore_index=True)
-    df.to_csv(path, index=False)
+def append_row(sheet_name: str, columns: tuple[str, ...], row: Dict[str, Any]) -> None:
+    gsb.append_row(sheet_name, list(columns), row)
 
 
 
 def rolling_mean(series: pd.Series, window: int) -> pd.Series:
     return series.rolling(window=window, min_periods=1).mean()
-
-
-def trailing_weighted_minutes_per_casket(
-    seconds: pd.Series,
-    caskets: pd.Series,
-    window_caskets: int,
-) -> tuple[pd.Series, pd.Series]:
-    seconds_values = pd.to_numeric(seconds, errors="coerce").fillna(0).tolist()
-    casket_values = pd.to_numeric(caskets, errors="coerce").fillna(0).tolist()
-    window_caskets = max(1, int(window_caskets))
-
-    minutes_per_casket = []
-    caskets_in_window = []
-    for idx in range(len(casket_values)):
-        included_caskets = 0.0
-        included_seconds = 0.0
-
-        for prev_idx in range(idx, -1, -1):
-            batch_caskets = float(casket_values[prev_idx])
-            batch_seconds = float(seconds_values[prev_idx])
-            if batch_caskets <= 0:
-                continue
-
-            remaining_caskets = window_caskets - included_caskets
-            take_caskets = min(batch_caskets, remaining_caskets)
-            included_caskets += take_caskets
-            included_seconds += (batch_seconds / batch_caskets) * take_caskets
-
-            if included_caskets >= window_caskets:
-                break
-
-        if included_caskets > 0:
-            minutes_per_casket.append((included_seconds / included_caskets) / 60.0)
-            caskets_in_window.append(included_caskets)
-        else:
-            minutes_per_casket.append(float("nan"))
-            caskets_in_window.append(0.0)
-
-    return (
-        pd.Series(minutes_per_casket, index=seconds.index),
-        pd.Series(caskets_in_window, index=seconds.index),
-    )
 
 
 def coerce_numeric(df: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
@@ -1346,74 +1275,6 @@ def build_completion_caskets_per_hour_chart(df: pd.DataFrame) -> go.Figure:
         )
     )
     return fig
-
-
-def build_end_to_end_trend_df(
-    acq_df: pd.DataFrame,
-    comp_df: pd.DataFrame,
-    window_caskets: int = END_TO_END_RECENT_CASKET_WINDOW,
-) -> pd.DataFrame:
-    acq = coerce_numeric(acq_df, ["duration_seconds", "clues"]).copy()
-    comp = coerce_numeric(comp_df, ["duration_seconds", "clues_completed"]).copy()
-    acq["log_date"] = pd.to_datetime(acq["log_date"], errors="coerce")
-    comp["log_date"] = pd.to_datetime(comp["log_date"], errors="coerce")
-
-    acq = acq.dropna(subset=["log_date", "duration_seconds", "clues"])
-    comp = comp.dropna(subset=["log_date", "duration_seconds", "clues_completed"])
-    acq = acq[acq["clues"] > 0].copy()
-    comp = comp[comp["clues_completed"] > 0].copy()
-    if acq.empty or comp.empty:
-        return pd.DataFrame()
-
-    acq["date"] = acq["log_date"].dt.date
-    comp["date"] = comp["log_date"].dt.date
-
-    acq_daily = (
-        acq.groupby("date", as_index=False)
-        .agg(acq_seconds=("duration_seconds", "sum"), acq_caskets=("clues", "sum"))
-        .sort_values("date")
-    )
-    comp_daily = (
-        comp.groupby("date", as_index=False)
-        .agg(comp_seconds=("duration_seconds", "sum"), comp_caskets=("clues_completed", "sum"))
-        .sort_values("date")
-    )
-
-    d = pd.merge(acq_daily, comp_daily, on="date", how="outer").sort_values("date").fillna(0)
-    d["date"] = pd.to_datetime(d["date"])
-    d["cum_acq_seconds"] = d["acq_seconds"].cumsum()
-    d["cum_acq_caskets"] = d["acq_caskets"].cumsum()
-    d["cum_comp_seconds"] = d["comp_seconds"].cumsum()
-    d["cum_comp_caskets"] = d["comp_caskets"].cumsum()
-    (
-        d["recent_acquire_minutes_per_casket"],
-        d["recent_acq_caskets_in_window"],
-    ) = trailing_weighted_minutes_per_casket(d["acq_seconds"], d["acq_caskets"], window_caskets)
-    (
-        d["recent_complete_minutes_per_casket"],
-        d["recent_comp_caskets_in_window"],
-    ) = trailing_weighted_minutes_per_casket(d["comp_seconds"], d["comp_caskets"], window_caskets)
-    d = d[(d["cum_acq_caskets"] > 0) & (d["cum_comp_caskets"] > 0)].copy()
-    if d.empty:
-        return pd.DataFrame()
-
-    d["overall_acquire_minutes_per_casket"] = (d["cum_acq_seconds"] / d["cum_acq_caskets"]) / 60.0
-    d["overall_complete_minutes_per_casket"] = (d["cum_comp_seconds"] / d["cum_comp_caskets"]) / 60.0
-    d["overall_total_minutes_per_casket"] = (
-        d["overall_acquire_minutes_per_casket"] + d["overall_complete_minutes_per_casket"]
-    )
-    d["overall_end_to_end_caskets_per_hour"] = d["overall_total_minutes_per_casket"].apply(
-        lambda x: 60.0 / x if x > 0 else 0.0
-    )
-    d["recent_total_minutes_per_casket"] = (
-        d["recent_acquire_minutes_per_casket"] + d["recent_complete_minutes_per_casket"]
-    )
-    d["recent_end_to_end_caskets_per_hour"] = d["recent_total_minutes_per_casket"].apply(
-        lambda x: 60.0 / x if x > 0 else 0.0
-    )
-    d["window_caskets"] = int(window_caskets)
-    d["date_label"] = d["date"].dt.strftime("%Y-%m-%d")
-    return d
 
 
 def build_end_to_end_time_breakdown_pie(end_to_end_sum: Dict[str, Any]) -> go.Figure:
@@ -1980,14 +1841,14 @@ def summarize_end_to_end(acq_sum: Dict[str, Any], comp_sum: Dict[str, Any], goal
 # ----------------------------
 SESSION_CACHE_KEY = get_session_cache_key()
 
-acq_df = load_df(ACQ_CSV, ACQ_COLS, SESSION_CACHE_KEY)
-comp_df = load_df(COMP_CSV, COMP_COLS, SESSION_CACHE_KEY)
+acq_df = load_df(ACQ_SHEET, ACQ_COLS, SESSION_CACHE_KEY)
+comp_df = load_df(COMP_SHEET, COMP_COLS, SESSION_CACHE_KEY)
 acq_sum = summarize_acq(acq_df, goal_caskets)
 comp_sum = summarize_comp(comp_df, goal_caskets)
 acq_metrics_df = prepare_acq_metrics(acq_df)
 comp_metrics_df = prepare_comp_metrics(comp_df)
 end_to_end_sum = summarize_end_to_end(acq_sum, comp_sum, goal_caskets)
-end_to_end_trend_df = build_end_to_end_trend_df(acq_df, comp_df)
+end_to_end_trend_df = build_end_to_end_trend_df(acq_df, comp_df, END_TO_END_RECENT_CASKET_WINDOW)
 
 running_acq_total = int(acq_sum.get("total_clues", 0))
 running_comp_total = int(comp_sum.get("total_completed", 0))
@@ -2160,7 +2021,7 @@ with st.sidebar:
         st.button("Clear End", on_click=acq_clear_end_system, width="stretch", key="btn_acq_clear_end")
 
     def save_acq() -> None:
-        df = load_df(ACQ_CSV, ACQ_COLS, SESSION_CACHE_KEY)
+        df = load_df(ACQ_SHEET, ACQ_COLS, SESSION_CACHE_KEY)
         log_date = st.session_state["w_acq_date"]
         start_play = str(st.session_state["w_acq_start_play"]).strip()
         end_play = str(st.session_state["w_acq_end_play"]).strip()
@@ -2235,7 +2096,7 @@ with st.sidebar:
             "gp_per_hour": gp_per_hour,
             "notes": notes,
         }
-        append_row(ACQ_CSV, ACQ_COLS, row)
+        append_row(ACQ_SHEET, ACQ_COLS, row)
         clear_loaded_data_cache()
 
         next_state = {
@@ -2334,7 +2195,7 @@ with st.sidebar:
         st.button("Clear End", on_click=comp_clear_end_system, width="stretch", key="btn_comp_clear_end")
 
     def save_comp() -> None:
-        df = load_df(COMP_CSV, COMP_COLS, SESSION_CACHE_KEY)
+        df = load_df(COMP_SHEET, COMP_COLS, SESSION_CACHE_KEY)
         log_date = st.session_state["w_comp_date"]
         start_play = str(st.session_state["w_comp_start_play"]).strip()
         end_play = str(st.session_state["w_comp_end_play"]).strip()
@@ -2385,7 +2246,7 @@ with st.sidebar:
             "clues_per_hour": clues_per_hour,
             "notes": notes,
         }
-        append_row(COMP_CSV, COMP_COLS, row)
+        append_row(COMP_SHEET, COMP_COLS, row)
         clear_loaded_data_cache()
 
         next_state = {
@@ -2689,17 +2550,24 @@ with tab_combo:
         c3.metric("Net GP remaining (full process)", human_gp_or_na(combo_expected_net_remaining))
         c4.metric("Remaining caskets", int(combo_goal_remaining))
 
+    if not end_to_end_trend_df.empty:
         st.divider()
         st.subheader("Charts")
         st.caption(
             f"End-to-end trend lines use the last up to {END_TO_END_RECENT_CASKET_WINDOW} acquired clues "
             f"and last up to {END_TO_END_RECENT_CASKET_WINDOW} completed caskets, weighted by casket count. "
-            "The dotted gray line is the average from all logged data through each date."
+            "If only one side is logged on a date, the other side carries forward its last value once it exists; "
+            "before a side has any history, that line stays blank. The dotted gray line is the average from all "
+            "logged data through each date."
         )
-        pie_col1, pie_col2 = st.columns(2)
-        with pie_col1:
-            st.plotly_chart(build_end_to_end_income_source_pie(end_to_end_sum), width="stretch")
-        with pie_col2:
-            st.plotly_chart(build_end_to_end_time_breakdown_pie(end_to_end_sum), width="stretch")
+        if end_to_end_sum:
+            pie_col1, pie_col2 = st.columns(2)
+            with pie_col1:
+                st.plotly_chart(build_end_to_end_income_source_pie(end_to_end_sum), width="stretch")
+            with pie_col2:
+                st.plotly_chart(build_end_to_end_time_breakdown_pie(end_to_end_sum), width="stretch")
+        else:
+            st.caption("Full end-to-end summary cards and pie charts appear after at least one acquisition and one completion entry.")
+
         st.plotly_chart(build_end_to_end_cph_chart(end_to_end_trend_df), width="stretch")
         st.plotly_chart(build_end_to_end_minutes_chart(end_to_end_trend_df), width="stretch")
