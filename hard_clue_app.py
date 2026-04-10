@@ -1883,6 +1883,7 @@ clues_on_ground_since_progress_start = max(0, acq_since_progress_start - comp_si
 stacked_clues_completion_time_s = (
     clues_on_ground_since_progress_start * float(comp_sum.get("avg_time_casket_s", 0.0) or 0.0)
 )
+clues_still_to_acquire_for_goal = max(0, goal_progress_remaining - clues_on_ground_since_progress_start)
 
 acq_goal_remaining = max(0, goal_caskets - acq_since_progress_start)
 comp_goal_remaining = max(0, goal_caskets - comp_since_progress_start)
@@ -1980,6 +1981,7 @@ st.progress(
     text=(
         f"Goal progress to {goal_caskets} caskets (completed since start): "
         f"{goal_progress_completed} / {goal_caskets} ({goal_progress * 100:.1f}%) • {goal_progress_remaining} remaining"
+        f" • {clues_still_to_acquire_for_goal} still to acquire after stacked clues"
     ),
 )
 inject_ui_dom_script()
