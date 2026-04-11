@@ -988,7 +988,9 @@ def prepare_acq_metrics(df: pd.DataFrame) -> pd.DataFrame:
     d["gp_spent_per_clue"] = d["gp_per_clue"].where(d["gp_per_clue"].notna(), d["gp_cost"].div(clues))
     d["gp_cost_per_clue"] = d["gp_spent_per_clue"]
     d["clues_per_hour"] = d["clues_per_hour"].where(d["clues_per_hour"].notna(), d["clues"].div(hours))
-    d["eligible_for_acquisition_income"] = d["bloods_used"].fillna(0) > 0
+    # A logged acquisition trip still qualifies for jelly-drop EV, even if drops
+    # (for example, a Skotizo blood-rune hit) make the net blood delta negative.
+    d["eligible_for_acquisition_income"] = d["bloods_used"].notna()
     eligible_flag = d["eligible_for_acquisition_income"].astype(float)
 
     d["rune_armor_gp_per_kill"] = RUNE_ARMOR_GP_PER_KILL * eligible_flag
@@ -1658,7 +1660,7 @@ def summarize_acq(df: pd.DataFrame, goal_caskets: int) -> Dict[str, Any]:
     total_seconds = float(d["duration_seconds"].fillna(0).sum())
     total_gp = float(d["gp_cost"].fillna(0).sum())
     total_bloods = float(d["bloods_used"].fillna(0).sum())
-    eligible_income_clues = float(d.loc[d["bloods_used"].fillna(0) > 0, "clues"].fillna(0).sum())
+    eligible_income_clues = float(d.loc[d["bloods_used"].notna(), "clues"].fillna(0).sum())
 
     avg_seconds_per_trip = float(d["duration_seconds"].dropna().mean()) if d["duration_seconds"].notna().any() else 0.0
     avg_seconds_per_clue = total_seconds / total_clues if total_clues > 0 else 0.0
@@ -2069,9 +2071,9 @@ with st.sidebar:
         else:
             raise ValueError("Provide playtime start/end OR press Start Now + End Now.")
 
+        # This is stored as net blood-rune change for the trip, so rare profit
+        # trips can be logged instead of being blocked by validation.
         bloods_used = start_blood - end_blood
-        if bloods_used < 0:
-            raise ValueError("End bloods is higher than start bloods.")
 
         deaths_used = int(bloods_used * DEATHS_PER_BLOOD)
         gp_cost = float(bloods_used * PRICE_BLOOD + deaths_used * PRICE_DEATH)
