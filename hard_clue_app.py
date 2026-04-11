@@ -2075,7 +2075,9 @@ with st.sidebar:
         # trips can be logged instead of being blocked by validation.
         bloods_used = start_blood - end_blood
 
-        deaths_used = int(bloods_used * DEATHS_PER_BLOOD)
+        # Barraging always spends 2 deaths per blood used, but blood-rune profit
+        # from drops should not imply matching death-rune profit too.
+        deaths_used = int(bloods_used * DEATHS_PER_BLOOD) if bloods_used > 0 else 0
         gp_cost = float(bloods_used * PRICE_BLOOD + deaths_used * PRICE_DEATH)
         hours = dur / 3600.0
         clues_per_hour = float(clues / hours) if hours > 0 else 0.0
