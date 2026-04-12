@@ -892,6 +892,18 @@ def today_local():
     return now_local().date()
 
 
+def resolve_session_log_date(
+    selected_date: Any,
+    *,
+    start_system: datetime | None = None,
+    used_system_duration: bool = False,
+) -> date:
+    normalized_date = normalize_draft_date(selected_date, default=today_local()) or today_local()
+    if used_system_duration and start_system is not None:
+        return start_system.astimezone(LOCAL_TIMEZONE).date()
+    return normalized_date
+
+
 
 @st.cache_data(show_spinner=False)
 def load_df(sheet_name: str, columns: tuple[str, ...], session_cache_key: str) -> pd.DataFrame:
@@ -1996,8 +2008,10 @@ with st.sidebar:
     st.header("Acquisition Logger")
 
     def acq_start_now() -> None:
-        st.session_state["acq_start_system"] = now_local()
+        start_at = now_local()
+        st.session_state["acq_start_system"] = start_at
         st.session_state["acq_end_system"] = None
+        st.session_state["w_acq_date"] = start_at.date()
         persist_acq_logger_state()
 
     def acq_end_now() -> None:
@@ -2070,6 +2084,11 @@ with st.sidebar:
             dur = dur_sys
         else:
             raise ValueError("Provide playtime start/end OR press Start Now + End Now.")
+        resolved_log_date = resolve_session_log_date(
+            log_date,
+            start_system=ss,
+            used_system_duration=dur_play is None and dur_sys is not None,
+        )
 
         # This is stored as net blood-rune change for the trip, so rare profit
         # trips can be logged instead of being blocked by validation.
@@ -2089,7 +2108,7 @@ with st.sidebar:
 
         row = {
             "trip_id": next_id,
-            "log_date": log_date.isoformat(),
+            "log_date": resolved_log_date.isoformat(),
             "start_playtime": start_play,
             "end_playtime": end_play,
             "duration_seconds_playtime": dur_play if dur_play is not None else "",
@@ -2111,15 +2130,20 @@ with st.sidebar:
         append_row(ACQ_SHEET, ACQ_COLS, row)
         clear_loaded_data_cache()
 
+        next_start_system = ee if ee else st.session_state.get("acq_start_system")
         next_state = {
-            "w_acq_date": log_date,
+            "w_acq_date": resolve_session_log_date(
+                resolved_log_date,
+                start_system=next_start_system,
+                used_system_duration=next_start_system is not None,
+            ),
             "w_acq_start_play": end_play if end_play else st.session_state.get("w_acq_start_play", ""),
             "w_acq_end_play": "",
             "w_acq_start_blood": end_blood,
             "w_acq_end_blood": None,
             "w_acq_clues": clues,
             "w_acq_notes": "",
-            "acq_start_system": ee if ee else st.session_state.get("acq_start_system"),
+            "acq_start_system": next_start_system,
             "acq_end_system": None,
         }
         queue_pending_updates(next_state)
@@ -2172,8 +2196,10 @@ with st.sidebar:
     st.header("Completion Logger")
 
     def comp_start_now() -> None:
-        st.session_state["comp_start_system"] = now_local()
+        start_at = now_local()
+        st.session_state["comp_start_system"] = start_at
         st.session_state["comp_end_system"] = None
+        st.session_state["w_comp_date"] = start_at.date()
         persist_comp_logger_state()
 
     def comp_end_now() -> None:
@@ -2238,6 +2264,11 @@ with st.sidebar:
             dur = dur_sys
         else:
             raise ValueError("Provide playtime start/end OR press Start Now + End Now.")
+        resolved_log_date = resolve_session_log_date(
+            log_date,
+            start_system=ss,
+            used_system_duration=dur_play is None and dur_sys is not None,
+        )
 
         hours = dur / 3600.0
         clues_per_hour = float(completed / hours) if hours > 0 else 0.0
@@ -2246,7 +2277,7 @@ with st.sidebar:
 
         row = {
             "session_id": next_id,
-            "log_date": log_date.isoformat(),
+            "log_date": resolved_log_date.isoformat(),
             "start_playtime": start_play,
             "end_playtime": end_play,
             "duration_seconds_playtime": dur_play if dur_play is not None else "",
@@ -2261,12 +2292,17 @@ with st.sidebar:
         append_row(COMP_SHEET, COMP_COLS, row)
         clear_loaded_data_cache()
 
+        next_start_system = ee if ee else st.session_state.get("comp_start_system")
         next_state = {
-            "w_comp_date": log_date,
+            "w_comp_date": resolve_session_log_date(
+                resolved_log_date,
+                start_system=next_start_system,
+                used_system_duration=next_start_system is not None,
+            ),
             "w_comp_end_play": "",
             "w_comp_completed": completed,
             "w_comp_notes": "",
-            "comp_start_system": ee if ee else st.session_state.get("comp_start_system"),
+            "comp_start_system": next_start_system,
             "comp_end_system": None,
         }
         if end_play:
