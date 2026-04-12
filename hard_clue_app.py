@@ -23,7 +23,7 @@ GOAL_CASKETS = 650
 DEFAULT_CLUES_PER_TRIP = 5
 END_TO_END_RECENT_ACQ_EWMA_SPAN = 8
 END_TO_END_RECENT_COMP_EWMA_SPAN = 4
-PRIMARY_PACE_CHART_HEIGHT = 520
+PRIMARY_PACE_CHART_HEIGHT = 600
 GOAL_HEADER_CONTROL_WIDTH_PX = 200
 GOAL_HEADER_CONTROLS_CONTAINER_WIDTH_PX = (GOAL_HEADER_CONTROL_WIDTH_PX * 2) + 24
 
@@ -1162,7 +1162,11 @@ def build_acq_clues_per_hour_chart(df: pd.DataFrame) -> go.Figure:
             name="Clues per hour",
             line=dict(color="#1d4ed8", width=3),
             marker=dict(color="#1d4ed8", size=7),
-            hovertemplate="Trip %{x}<br>Clues/hr: %{y:.2f}<extra></extra>",
+            customdata=d[["clues"]],
+            hovertemplate=(
+                "Trip %{x}<br>Clues/hr: %{y:.2f}"
+                "<br>Clues obtained: %{customdata[0]:.0f}<extra></extra>"
+            ),
         )
     )
     fig.add_trace(
@@ -1207,7 +1211,11 @@ def build_acq_profitability_chart(df: pd.DataFrame) -> go.Figure:
             name="GP cost per clue",
             line=dict(color="#b45309", width=3),
             marker=dict(color="#b45309", size=7),
-            hovertemplate="Trip %{x}<br>GP cost/clue: %{y:,.0f}<extra></extra>",
+            customdata=d[["clues"]],
+            hovertemplate=(
+                "Trip %{x}<br>GP cost/clue: %{y:,.0f}"
+                "<br>Clues obtained: %{customdata[0]:.0f}<extra></extra>"
+            ),
         )
     )
     fig.add_trace(
@@ -1302,7 +1310,11 @@ def build_completion_caskets_per_hour_chart(df: pd.DataFrame) -> go.Figure:
             name="Caskets per hour",
             line=dict(color="#047857", width=3),
             marker=dict(color="#047857", size=7),
-            hovertemplate="Session %{x}<br>Caskets/hr: %{y:.2f}<extra></extra>",
+            customdata=d[["clues_completed"]],
+            hovertemplate=(
+                "Session %{x}<br>Caskets/hr: %{y:.2f}"
+                "<br>Caskets completed: %{customdata[0]:.0f}<extra></extra>"
+            ),
         )
     )
     fig.add_trace(
@@ -1334,7 +1346,7 @@ def build_completion_caskets_completed_chart(df: pd.DataFrame) -> go.Figure:
     d = df.dropna(subset=["session_id", "clues_completed"]).sort_values("session_id").copy()
     fig = go.Figure()
     fig.update_layout(
-        **make_line_layout("Caskets completed by session", "Session #", "Caskets completed", height=340)
+        **make_line_layout("Caskets completed by session", "Session #", "Caskets completed", height=420)
     )
     if d.empty:
         return fig
@@ -1466,6 +1478,7 @@ def build_end_to_end_cph_chart(trend_df: pd.DataFrame) -> go.Figure:
             y=trend_df["raw_end_to_end_caskets_per_hour"],
             mode="markers",
             name="Raw total point",
+            showlegend=False,
             marker=dict(
                 size=raw_total_sizes,
                 color="rgba(220, 38, 38, 0)",
@@ -1504,6 +1517,7 @@ def build_end_to_end_cph_chart(trend_df: pd.DataFrame) -> go.Figure:
             y=trend_df["raw_acquire_caskets_per_hour"],
             mode="markers",
             name="Raw acquisition point",
+            showlegend=False,
             marker=dict(
                 size=raw_acq_sizes,
                 color="rgba(29, 78, 216, 0)",
@@ -1532,6 +1546,7 @@ def build_end_to_end_cph_chart(trend_df: pd.DataFrame) -> go.Figure:
             y=trend_df["raw_complete_caskets_per_hour"],
             mode="markers",
             name="Raw completion point",
+            showlegend=False,
             marker=dict(
                 size=raw_comp_sizes,
                 color="rgba(15, 118, 110, 0)",
@@ -1565,8 +1580,8 @@ def build_end_to_end_cph_chart(trend_df: pd.DataFrame) -> go.Figure:
         )
     )
     fig.update_layout(
-        margin=dict(l=40, r=40, t=64, b=270),
-        legend=make_chart_legend_below(y=-0.38),
+        margin=dict(l=40, r=40, t=64, b=165),
+        legend=make_chart_legend_below(),
         xaxis=dict(
             title=dict(text="Date", standoff=28),
             type="category",
