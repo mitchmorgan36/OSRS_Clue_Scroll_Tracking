@@ -79,6 +79,8 @@ def main() -> None:
     assert_nan(third["raw_acquire_minutes_per_casket"], "raw acquisition should be blank on completion-only dates")
     assert_close(third["recent_complete_minutes_per_casket"], 4.0, "first completion point")
     assert_close(third["raw_complete_minutes_per_casket"], 4.0, "first raw completion point")
+    assert_close(third["recent_complete_caskets_per_hour"], 15.0, "first completion cph point")
+    assert_close(third["raw_complete_caskets_per_hour"], 15.0, "first raw completion cph point")
     assert_close(third["recent_total_minutes_per_casket"], 7.0, "first total point")
     assert_close(third["raw_total_minutes_per_casket"], 5.666666666666667, "first raw total point")
     assert_close(third["raw_total_same_day_weight"], 2.0, "first raw total same-day weight")
@@ -102,12 +104,20 @@ def main() -> None:
     fifth = trend_df.iloc[4]
     assert_close(fifth["recent_acquire_minutes_per_casket"], 5.0, "both-sides date acquisition update")
     assert_close(fifth["raw_acquire_minutes_per_casket"], 10.0, "both-sides raw acquisition update")
+    assert_close(fifth["recent_acquire_caskets_per_hour"], 12.0, "both-sides recent acquisition cph update")
+    assert_close(fifth["raw_acquire_caskets_per_hour"], 6.0, "both-sides raw acquisition cph update")
     assert_close(
         fifth["recent_complete_minutes_per_casket"],
         4.857142857142857,
         "both-sides date completion update",
     )
     assert_close(fifth["raw_complete_minutes_per_casket"], 5.0, "both-sides raw completion update")
+    assert_close(
+        fifth["recent_complete_caskets_per_hour"],
+        60.0 / 4.857142857142857,
+        "both-sides recent completion cph update",
+    )
+    assert_close(fifth["raw_complete_caskets_per_hour"], 12.0, "both-sides raw completion cph update")
     assert_close(
         fifth["recent_total_minutes_per_casket"],
         9.857142857142858,

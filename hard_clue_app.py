@@ -23,6 +23,7 @@ GOAL_CASKETS = 650
 DEFAULT_CLUES_PER_TRIP = 5
 END_TO_END_RECENT_ACQ_EWMA_SPAN = 8
 END_TO_END_RECENT_COMP_EWMA_SPAN = 4
+PRIMARY_PACE_CHART_HEIGHT = 520
 GOAL_HEADER_CONTROL_WIDTH_PX = 200
 GOAL_HEADER_CONTROLS_CONTAINER_WIDTH_PX = (GOAL_HEADER_CONTROL_WIDTH_PX * 2) + 24
 
@@ -950,7 +951,7 @@ def coerce_numeric(df: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
     return out
 
 
-def make_chart_legend_below(y: float = -0.22) -> dict:
+def make_chart_legend_below(y: float = -0.28) -> dict:
     return dict(orientation="h", yanchor="top", y=y, xanchor="center", x=0.5)
 
 
@@ -958,9 +959,9 @@ def make_line_layout(title: str, x_title: str, y_title: str, y2_title: str | Non
     layout = dict(
         title=title,
         height=height,
-        margin=dict(l=40, r=40, t=64, b=120),
+        margin=dict(l=40, r=40, t=64, b=165),
         legend=make_chart_legend_below(),
-        xaxis=dict(title=x_title),
+        xaxis=dict(title=dict(text=x_title, standoff=24), automargin=True),
         yaxis=dict(title=y_title),
     )
     if y2_title is not None:
@@ -970,8 +971,8 @@ def make_line_layout(title: str, x_title: str, y_title: str, y2_title: str | Non
 
 def scale_marker_sizes(
     weights: pd.Series,
-    min_size: float = 7.0,
-    max_size: float = 19.0,
+    min_size: float = 6.0,
+    max_size: float = 28.0,
     max_weight: float | None = None,
 ) -> list[float]:
     vals = pd.to_numeric(weights, errors="coerce").fillna(0.0).clip(lower=0.0)
@@ -981,7 +982,7 @@ def scale_marker_sizes(
 
     size_max = float(max_weight) if max_weight and max_weight > 0 else float(positive.max())
     size_max = max(size_max, float(positive.max()))
-    scale = positive.pow(0.5).div(size_max**0.5)
+    scale = positive.div(size_max)
 
     sizes = pd.Series(min_size, index=vals.index, dtype=float)
     sizes.loc[positive.index] = min_size + scale * (max_size - min_size)
@@ -1055,6 +1056,11 @@ def prepare_acq_metrics(df: pd.DataFrame) -> pd.DataFrame:
     d["rolling_10_trip_avg_minutes_per_clue"] = rolling_weighted_ratio(
         d["duration_seconds"] / 60.0,
         d["clues"],
+        10,
+    )
+    d["rolling_10_trip_avg_clues_per_hour"] = rolling_weighted_ratio(
+        d["clues"],
+        d["duration_seconds"] / 3600.0,
         10,
     )
     d["rolling_10_trip_avg_gp_cost_per_clue"] = rolling_weighted_ratio(d["gp_cost"], d["clues"], 10)
@@ -1139,36 +1145,38 @@ def build_range_histogram(series: pd.Series, title: str, x_title: str, y_title: 
     return fig
 
 
-def build_acq_minutes_per_clue_chart(df: pd.DataFrame) -> go.Figure:
-    d = df.dropna(subset=["trip_id", "minutes_per_clue"]).sort_values("trip_id").copy()
+def build_acq_clues_per_hour_chart(df: pd.DataFrame) -> go.Figure:
+    d = df.dropna(subset=["trip_id", "clues_per_hour"]).sort_values("trip_id").copy()
     fig = go.Figure()
-    fig.update_layout(**make_line_layout("Minutes per clue by trip", "Trip #", "Minutes per clue", height=420))
+    fig.update_layout(
+        **make_line_layout("Clues per hour by trip", "Trip #", "Clues per hour", height=PRIMARY_PACE_CHART_HEIGHT)
+    )
     if d.empty:
         return fig
 
     fig.add_trace(
         go.Scatter(
             x=d["trip_id"],
-            y=d["minutes_per_clue"],
+            y=d["clues_per_hour"],
             mode="lines+markers",
-            name="Minutes per clue",
+            name="Clues per hour",
             line=dict(color="#1d4ed8", width=3),
             marker=dict(color="#1d4ed8", size=7),
-            hovertemplate="Trip %{x}<br>Minutes/clue: %{y:.2f}<extra></extra>",
+            hovertemplate="Trip %{x}<br>Clues/hr: %{y:.2f}<extra></extra>",
         )
     )
     fig.add_trace(
         go.Scatter(
             x=d["trip_id"],
-            y=d["rolling_10_trip_avg_minutes_per_clue"],
+            y=d["rolling_10_trip_avg_clues_per_hour"],
             mode="lines",
             name="Rolling 10-trip avg",
             line=dict(color="#60a5fa", width=2.5, dash="dash"),
-            hovertemplate="Rolling avg: %{y:.2f} min/clue<extra></extra>",
+            hovertemplate="Rolling avg: %{y:.2f} clues/hr<extra></extra>",
         )
     )
 
-    overall_avg = weighted_ratio(d["duration_seconds"] / 60.0, d["clues"])
+    overall_avg = weighted_ratio(d["clues"], d["duration_seconds"] / 3600.0)
     fig.add_trace(
         go.Scatter(
             x=d["trip_id"],
@@ -1176,7 +1184,7 @@ def build_acq_minutes_per_clue_chart(df: pd.DataFrame) -> go.Figure:
             mode="lines",
             name="Overall avg",
             line=dict(color="#93c5fd", width=2, dash="dot"),
-            hovertemplate="Overall avg: %{y:.2f} min/clue<extra></extra>",
+            hovertemplate="Overall avg: %{y:.2f} clues/hr<extra></extra>",
         )
     )
     return fig
@@ -1275,7 +1283,14 @@ def build_completion_minutes_per_casket_chart(df: pd.DataFrame) -> go.Figure:
 def build_completion_caskets_per_hour_chart(df: pd.DataFrame) -> go.Figure:
     d = df.dropna(subset=["session_id", "caskets_per_hour"]).sort_values("session_id").copy()
     fig = go.Figure()
-    fig.update_layout(**make_line_layout("Caskets per hour by session", "Session #", "Caskets per hour", height=420))
+    fig.update_layout(
+        **make_line_layout(
+            "Caskets per hour by session",
+            "Session #",
+            "Caskets per hour",
+            height=PRIMARY_PACE_CHART_HEIGHT,
+        )
+    )
     if d.empty:
         return fig
 
@@ -1310,6 +1325,56 @@ def build_completion_caskets_per_hour_chart(df: pd.DataFrame) -> go.Figure:
             name="Overall avg",
             line=dict(color="#a7f3d0", width=2, dash="dot"),
             hovertemplate="Overall avg: %{y:.2f} caskets/hr<extra></extra>",
+        )
+    )
+    return fig
+
+
+def build_completion_caskets_completed_chart(df: pd.DataFrame) -> go.Figure:
+    d = df.dropna(subset=["session_id", "clues_completed"]).sort_values("session_id").copy()
+    fig = go.Figure()
+    fig.update_layout(
+        **make_line_layout("Caskets completed by session", "Session #", "Caskets completed", height=340)
+    )
+    if d.empty:
+        return fig
+
+    d["rolling_10_session_avg_caskets_completed"] = rolling_mean(
+        pd.to_numeric(d["clues_completed"], errors="coerce"),
+        10,
+    )
+
+    fig.add_trace(
+        go.Scatter(
+            x=d["session_id"],
+            y=d["clues_completed"],
+            mode="lines+markers",
+            name="Caskets completed",
+            line=dict(color="#059669", width=3),
+            marker=dict(color="#059669", size=7),
+            hovertemplate="Session %{x}<br>Caskets completed: %{y:.0f}<extra></extra>",
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=d["session_id"],
+            y=d["rolling_10_session_avg_caskets_completed"],
+            mode="lines",
+            name="Rolling 10-session avg",
+            line=dict(color="#6ee7b7", width=2.5, dash="dash"),
+            hovertemplate="Rolling avg: %{y:.2f} caskets/session<extra></extra>",
+        )
+    )
+
+    overall_avg = float(pd.to_numeric(d["clues_completed"], errors="coerce").dropna().mean())
+    fig.add_trace(
+        go.Scatter(
+            x=d["session_id"],
+            y=[overall_avg] * len(d),
+            mode="lines",
+            name="Overall avg",
+            line=dict(color="#a7f3d0", width=2, dash="dot"),
+            hovertemplate="Overall avg: %{y:.2f} caskets/session<extra></extra>",
         )
     )
     return fig
@@ -1350,17 +1415,45 @@ def build_end_to_end_time_breakdown_pie(end_to_end_sum: Dict[str, Any]) -> go.Fi
 def build_end_to_end_cph_chart(trend_df: pd.DataFrame) -> go.Figure:
     fig = go.Figure()
     fig.update_layout(
-        **make_line_layout("End-to-end caskets per hour", "Date", "Caskets per hour", height=380)
+        **make_line_layout(
+            "End-to-end caskets per hour",
+            "Date",
+            "Caskets per hour",
+            height=PRIMARY_PACE_CHART_HEIGHT,
+        )
     )
     if trend_df.empty:
         return fig
 
-    raw_total_sizes = scale_marker_sizes(trend_df["raw_total_same_day_weight"], min_size=8.0, max_size=20.0)
+    max_raw_weight = float(
+        max(
+            pd.to_numeric(trend_df["raw_total_same_day_weight"], errors="coerce").fillna(0.0).max(),
+            pd.to_numeric(trend_df["acq_caskets"], errors="coerce").fillna(0.0).max(),
+            pd.to_numeric(trend_df["comp_caskets"], errors="coerce").fillna(0.0).max(),
+        )
+    )
+    raw_total_sizes = scale_marker_sizes(
+        trend_df["raw_total_same_day_weight"],
+        min_size=9.0,
+        max_size=32.0,
+        max_weight=max_raw_weight,
+    )
+    raw_acq_sizes = scale_marker_sizes(
+        trend_df["acq_caskets"],
+        min_size=7.0,
+        max_size=28.0,
+        max_weight=max_raw_weight,
+    )
+    raw_comp_sizes = scale_marker_sizes(
+        trend_df["comp_caskets"],
+        min_size=7.0,
+        max_size=28.0,
+        max_weight=max_raw_weight,
+    )
     hover_raw_total_data = trend_df[
         [
-            "raw_total_minutes_per_casket",
-            "raw_total_acquire_component",
-            "raw_total_complete_component",
+            "raw_acquire_caskets_per_hour",
+            "raw_complete_caskets_per_hour",
             "acq_caskets",
             "comp_caskets",
             "raw_total_same_day_weight",
@@ -1380,13 +1473,12 @@ def build_end_to_end_cph_chart(trend_df: pd.DataFrame) -> go.Figure:
             ),
             customdata=hover_raw_total_data,
             hovertemplate=(
-                "%{x}<br>Raw total: %{customdata[0]:.4f} min/casket"
-                "<br>Raw total: %{y:.4f} caskets/hr"
-                "<br>Acquisition component used: %{customdata[1]:.4f} min/clue"
-                "<br>Completion component used: %{customdata[2]:.4f} min/casket"
-                "<br>Clues logged on this date: %{customdata[3]:.0f}"
-                "<br>Caskets logged on this date: %{customdata[4]:.0f}"
-                "<br>Total same-day weight: %{customdata[5]:.0f}<extra></extra>"
+                "%{x}<br>Raw total pace: %{y:.4f} caskets/hr"
+                "<br>Acquisition component used: %{customdata[0]:.4f} clues/hr"
+                "<br>Completion component used: %{customdata[1]:.4f} caskets/hr"
+                "<br>Clues logged on this date: %{customdata[2]:.0f}"
+                "<br>Caskets logged on this date: %{customdata[3]:.0f}"
+                "<br>Total same-day weight: %{customdata[4]:.0f}<extra></extra>"
             ),
         )
     )
@@ -1395,15 +1487,71 @@ def build_end_to_end_cph_chart(trend_df: pd.DataFrame) -> go.Figure:
             x=trend_df["date_label"],
             y=trend_df["recent_end_to_end_caskets_per_hour"],
             mode="lines+markers",
-            name="Recent pace (EWMA)",
+            name="Recent total (EWMA)",
             line=dict(color="#dc2626", width=3),
             marker=dict(color="#dc2626", size=7),
             customdata=hover_span_data,
             hovertemplate=(
-                "%{x}<br>Recent caskets/hr: %{y:.2f}"
+                "%{x}<br>Recent total: %{y:.2f} caskets/hr"
                 "<br>Acquisition EWMA span: %{customdata[0]:.0f}"
                 "<br>Completion EWMA span: %{customdata[1]:.0f}<extra></extra>"
             ),
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=trend_df["date_label"],
+            y=trend_df["raw_acquire_caskets_per_hour"],
+            mode="markers",
+            name="Raw acquisition point",
+            marker=dict(
+                size=raw_acq_sizes,
+                color="rgba(29, 78, 216, 0)",
+                line=dict(color="rgba(29, 78, 216, 0.38)", width=1.5),
+            ),
+            customdata=trend_df[["acq_caskets"]],
+            hovertemplate=(
+                "%{x}<br>Raw acquisition pace: %{y:.4f} clues/hr"
+                "<br>Clues logged on this date: %{customdata[0]:.0f}<extra></extra>"
+            ),
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=trend_df["date_label"],
+            y=trend_df["recent_acquire_caskets_per_hour"],
+            mode="lines",
+            name="Recent acquisition (EWMA)",
+            line=dict(color="#1d4ed8", width=2.5),
+            hovertemplate="%{x}<br>Recent acquisition: %{y:.2f} clues/hr<extra></extra>",
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=trend_df["date_label"],
+            y=trend_df["raw_complete_caskets_per_hour"],
+            mode="markers",
+            name="Raw completion point",
+            marker=dict(
+                size=raw_comp_sizes,
+                color="rgba(15, 118, 110, 0)",
+                line=dict(color="rgba(15, 118, 110, 0.38)", width=1.5),
+            ),
+            customdata=trend_df[["comp_caskets"]],
+            hovertemplate=(
+                "%{x}<br>Raw completion pace: %{y:.4f} caskets/hr"
+                "<br>Caskets logged on this date: %{customdata[0]:.0f}<extra></extra>"
+            ),
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=trend_df["date_label"],
+            y=trend_df["recent_complete_caskets_per_hour"],
+            mode="lines",
+            name="Recent completion (EWMA)",
+            line=dict(color="#0f766e", width=2.5),
+            hovertemplate="%{x}<br>Recent completion: %{y:.2f} caskets/hr<extra></extra>",
         )
     )
     fig.add_trace(
@@ -1417,11 +1565,13 @@ def build_end_to_end_cph_chart(trend_df: pd.DataFrame) -> go.Figure:
         )
     )
     fig.update_layout(
-        margin=dict(l=40, r=40, t=64, b=120),
-        legend=make_chart_legend_below(),
+        margin=dict(l=40, r=40, t=64, b=270),
+        legend=make_chart_legend_below(y=-0.38),
         xaxis=dict(
-            title="Date",
+            title=dict(text="Date", standoff=28),
             type="category",
+            tickangle=-35,
+            automargin=True,
             categoryorder="array",
             categoryarray=trend_df["date_label"].tolist(),
         )
@@ -2562,7 +2712,7 @@ with tab_acq:
 
         st.divider()
         st.subheader("Charts")
-        st.plotly_chart(build_acq_minutes_per_clue_chart(acq_metrics_df), width="stretch")
+        st.plotly_chart(build_acq_clues_per_hour_chart(acq_metrics_df), width="stretch")
 
         c1, c2 = st.columns(2)
         with c1:
@@ -2661,10 +2811,10 @@ with tab_comp:
 
         st.divider()
         st.subheader("Charts")
-        st.plotly_chart(build_completion_minutes_per_casket_chart(comp_metrics_df), width="stretch")
+        st.plotly_chart(build_completion_caskets_per_hour_chart(comp_metrics_df), width="stretch")
         c1, c2 = st.columns(2)
         with c1:
-            st.plotly_chart(build_completion_caskets_per_hour_chart(comp_metrics_df), width="stretch")
+            st.plotly_chart(build_completion_caskets_completed_chart(comp_metrics_df), width="stretch")
         with c2:
             st.plotly_chart(
                 build_range_histogram(
@@ -2746,14 +2896,7 @@ with tab_combo:
     if not end_to_end_trend_df.empty:
         st.divider()
         st.subheader("Charts")
-        st.caption(
-            f"Raw hollow circles are same-day points, and circle size scales with the clues or caskets logged "
-            f"that day. The red lines use a causal EWMA (spans: {END_TO_END_RECENT_ACQ_EWMA_SPAN} acquisition "
-            f"dates and {END_TO_END_RECENT_COMP_EWMA_SPAN} completion dates), so older points do not change when "
-            "newer data is added. If only one side is logged on a date, the other side carries forward its last "
-            "known value once it exists. The dotted gray line is the flat overall weighted average across all "
-            "logged data."
-        )
+        st.plotly_chart(build_end_to_end_cph_chart(end_to_end_trend_df), width="stretch")
         if end_to_end_sum:
             pie_col1, pie_col2 = st.columns(2)
             with pie_col1:
@@ -2762,6 +2905,11 @@ with tab_combo:
                 st.plotly_chart(build_end_to_end_time_breakdown_pie(end_to_end_sum), width="stretch")
         else:
             st.caption("Full end-to-end summary cards and pie charts appear after at least one acquisition and one completion entry.")
-
-        st.plotly_chart(build_end_to_end_cph_chart(end_to_end_trend_df), width="stretch")
-        st.plotly_chart(build_end_to_end_minutes_chart(end_to_end_trend_df), width="stretch")
+        st.caption(
+            f"Raw hollow circles are same-day points: blue scales with clues acquired that day, green scales with "
+            f"caskets completed that day, and red scales with the combined same-day weight. The EWMA lines use "
+            f"spans of {END_TO_END_RECENT_ACQ_EWMA_SPAN} acquisition dates and {END_TO_END_RECENT_COMP_EWMA_SPAN} "
+            "completion dates, and they are causal, so older points do not change when newer data is added. If "
+            "only one side is logged on a date, the other side carries forward its last known value once it exists. "
+            "The dotted gray line is the flat overall weighted average across all logged data."
+        )

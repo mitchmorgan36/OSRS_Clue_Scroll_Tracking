@@ -117,6 +117,12 @@ def build_end_to_end_trend_df(
     d["raw_end_to_end_caskets_per_hour"] = _minutes_to_caskets_per_hour(
         d["raw_total_minutes_per_casket"]
     )
+    d["raw_acquire_caskets_per_hour"] = _minutes_to_caskets_per_hour(
+        d["raw_acquire_minutes_per_casket"]
+    )
+    d["raw_complete_caskets_per_hour"] = _minutes_to_caskets_per_hour(
+        d["raw_complete_minutes_per_casket"]
+    )
 
     acq_total_caskets = float(d["acq_caskets"].sum())
     comp_total_caskets = float(d["comp_caskets"].sum())
@@ -137,6 +143,18 @@ def build_end_to_end_trend_df(
     )
     d["all_time_end_to_end_caskets_per_hour"] = _minutes_to_caskets_per_hour(
         d["all_time_total_minutes_per_casket"]
+    )
+    d["all_time_acquire_caskets_per_hour"] = _minutes_to_caskets_per_hour(
+        d["all_time_acquire_minutes_per_casket"]
+    )
+    d["all_time_complete_caskets_per_hour"] = _minutes_to_caskets_per_hour(
+        d["all_time_complete_minutes_per_casket"]
+    )
+    d["recent_acquire_caskets_per_hour"] = _minutes_to_caskets_per_hour(
+        d["recent_acquire_minutes_per_casket"]
+    )
+    d["recent_complete_caskets_per_hour"] = _minutes_to_caskets_per_hour(
+        d["recent_complete_minutes_per_casket"]
     )
     d["recent_end_to_end_caskets_per_hour"] = _minutes_to_caskets_per_hour(
         d["recent_total_minutes_per_casket"]
