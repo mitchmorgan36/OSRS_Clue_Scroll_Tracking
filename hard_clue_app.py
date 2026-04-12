@@ -21,7 +21,8 @@ st.set_page_config(page_title="Hard Clue Dashboard", layout="wide")
 
 GOAL_CASKETS = 650
 DEFAULT_CLUES_PER_TRIP = 5
-END_TO_END_RECENT_CASKET_WINDOW = 50
+END_TO_END_RECENT_ACQ_EWMA_SPAN = 8
+END_TO_END_RECENT_COMP_EWMA_SPAN = 4
 GOAL_HEADER_CONTROL_WIDTH_PX = 200
 GOAL_HEADER_CONTROLS_CONTAINER_WIDTH_PX = (GOAL_HEADER_CONTROL_WIDTH_PX * 2) + 24
 
@@ -967,6 +968,25 @@ def make_line_layout(title: str, x_title: str, y_title: str, y2_title: str | Non
     return layout
 
 
+def scale_marker_sizes(
+    weights: pd.Series,
+    min_size: float = 7.0,
+    max_size: float = 19.0,
+    max_weight: float | None = None,
+) -> list[float]:
+    vals = pd.to_numeric(weights, errors="coerce").fillna(0.0).clip(lower=0.0)
+    positive = vals[vals > 0]
+    if positive.empty:
+        return [min_size] * len(vals)
+
+    size_max = float(max_weight) if max_weight and max_weight > 0 else float(positive.max())
+    size_max = max(size_max, float(positive.max()))
+    scale = positive.pow(0.5).div(size_max**0.5)
+
+    sizes = pd.Series(min_size, index=vals.index, dtype=float)
+    sizes.loc[positive.index] = min_size + scale * (max_size - min_size)
+    return sizes.tolist()
+
 
 def minutes_to_hhmm(total_minutes: float) -> str:
     return seconds_to_hhmm(float(total_minutes or 0) * 60.0)
@@ -1335,32 +1355,65 @@ def build_end_to_end_cph_chart(trend_df: pd.DataFrame) -> go.Figure:
     if trend_df.empty:
         return fig
 
-    window_caskets = int(trend_df["window_caskets"].dropna().iloc[-1])
-    hover_window_data = trend_df[["recent_acq_caskets_in_window", "recent_comp_caskets_in_window"]]
+    raw_total_sizes = scale_marker_sizes(trend_df["raw_total_same_day_weight"], min_size=8.0, max_size=20.0)
+    hover_raw_total_data = trend_df[
+        [
+            "raw_total_minutes_per_casket",
+            "raw_total_acquire_component",
+            "raw_total_complete_component",
+            "acq_caskets",
+            "comp_caskets",
+            "raw_total_same_day_weight",
+        ]
+    ]
+    hover_span_data = trend_df[["recent_acq_ewma_span", "recent_comp_ewma_span"]]
     fig.add_trace(
         go.Scatter(
             x=trend_df["date_label"],
-            y=trend_df["recent_end_to_end_caskets_per_hour"],
-            mode="lines+markers",
-            name=f"Recent pace (last {window_caskets} each)",
-            line=dict(color="#dc2626", width=3),
-            marker=dict(color="#dc2626", size=7),
-            customdata=hover_window_data,
+            y=trend_df["raw_end_to_end_caskets_per_hour"],
+            mode="markers",
+            name="Raw total point",
+            marker=dict(
+                size=raw_total_sizes,
+                color="rgba(220, 38, 38, 0)",
+                line=dict(color="rgba(220, 38, 38, 0.40)", width=1.5),
+            ),
+            customdata=hover_raw_total_data,
             hovertemplate=(
-                "%{x}<br>Recent caskets/hr: %{y:.2f}"
-                "<br>Acquired clues in window: %{customdata[0]:.0f}"
-                "<br>Completed caskets in window: %{customdata[1]:.0f}<extra></extra>"
+                "%{x}<br>Raw total: %{customdata[0]:.4f} min/casket"
+                "<br>Raw total: %{y:.4f} caskets/hr"
+                "<br>Acquisition component used: %{customdata[1]:.4f} min/clue"
+                "<br>Completion component used: %{customdata[2]:.4f} min/casket"
+                "<br>Clues logged on this date: %{customdata[3]:.0f}"
+                "<br>Caskets logged on this date: %{customdata[4]:.0f}"
+                "<br>Total same-day weight: %{customdata[5]:.0f}<extra></extra>"
             ),
         )
     )
     fig.add_trace(
         go.Scatter(
             x=trend_df["date_label"],
-            y=trend_df["overall_end_to_end_caskets_per_hour"],
+            y=trend_df["recent_end_to_end_caskets_per_hour"],
+            mode="lines+markers",
+            name="Recent pace (EWMA)",
+            line=dict(color="#dc2626", width=3),
+            marker=dict(color="#dc2626", size=7),
+            customdata=hover_span_data,
+            hovertemplate=(
+                "%{x}<br>Recent caskets/hr: %{y:.2f}"
+                "<br>Acquisition EWMA span: %{customdata[0]:.0f}"
+                "<br>Completion EWMA span: %{customdata[1]:.0f}<extra></extra>"
+            ),
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=trend_df["date_label"],
+            y=trend_df["all_time_end_to_end_caskets_per_hour"],
             mode="lines",
-            name="All logged average",
+            name="Overall average",
             line=dict(color="#64748b", width=2.5, dash="dot"),
-            hovertemplate="%{x}<br>All logged average: %{y:.2f} caskets/hr<extra></extra>",
+            hovertemplate="%{x}<br>Overall average: %{y:.4f} caskets/hr<extra></extra>",
         )
     )
     fig.update_layout(
@@ -1384,20 +1437,83 @@ def build_end_to_end_minutes_chart(trend_df: pd.DataFrame) -> go.Figure:
     if trend_df.empty:
         return fig
 
-    hover_window_data = trend_df[["recent_acq_caskets_in_window", "recent_comp_caskets_in_window"]]
+    max_raw_weight = float(
+        max(
+            pd.to_numeric(trend_df["raw_total_same_day_weight"], errors="coerce").fillna(0.0).max(),
+            pd.to_numeric(trend_df["acq_caskets"], errors="coerce").fillna(0.0).max(),
+            pd.to_numeric(trend_df["comp_caskets"], errors="coerce").fillna(0.0).max(),
+        )
+    )
+    raw_total_sizes = scale_marker_sizes(
+        trend_df["raw_total_same_day_weight"],
+        min_size=8.0,
+        max_size=20.0,
+        max_weight=max_raw_weight,
+    )
+    raw_acq_sizes = scale_marker_sizes(
+        trend_df["acq_caskets"],
+        min_size=7.0,
+        max_size=18.0,
+        max_weight=max_raw_weight,
+    )
+    raw_comp_sizes = scale_marker_sizes(
+        trend_df["comp_caskets"],
+        min_size=7.0,
+        max_size=18.0,
+        max_weight=max_raw_weight,
+    )
+    hover_span_data = trend_df[["recent_acq_ewma_span", "recent_comp_ewma_span"]]
+    fig.add_trace(
+        go.Scatter(
+            x=trend_df["date_label"],
+            y=trend_df["raw_total_minutes_per_casket"],
+            mode="markers",
+            name="Raw total point",
+            marker=dict(
+                size=raw_total_sizes,
+                color="rgba(220, 38, 38, 0)",
+                line=dict(color="rgba(220, 38, 38, 0.40)", width=1.5),
+            ),
+            customdata=trend_df[["acq_caskets", "comp_caskets", "raw_total_same_day_weight"]],
+            hovertemplate=(
+                "%{x}<br>Raw total: %{y:.4f} min/casket"
+                "<br>Clues logged on this date: %{customdata[0]:.0f}"
+                "<br>Caskets logged on this date: %{customdata[1]:.0f}"
+                "<br>Total same-day weight: %{customdata[2]:.0f}<extra></extra>"
+            ),
+        )
+    )
     fig.add_trace(
         go.Scatter(
             x=trend_df["date_label"],
             y=trend_df["recent_total_minutes_per_casket"],
             mode="lines+markers",
-            name="Recent total",
+            name="Recent total (EWMA)",
             line=dict(color="#dc2626", width=3),
             marker=dict(color="#dc2626", size=7),
-            customdata=hover_window_data,
+            customdata=hover_span_data,
             hovertemplate=(
                 "%{x}<br>Recent total: %{y:.2f} min/casket"
-                "<br>Acquired clues in window: %{customdata[0]:.0f}"
-                "<br>Completed caskets in window: %{customdata[1]:.0f}<extra></extra>"
+                "<br>Acquisition EWMA span: %{customdata[0]:.0f}"
+                "<br>Completion EWMA span: %{customdata[1]:.0f}<extra></extra>"
+            ),
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=trend_df["date_label"],
+            y=trend_df["raw_acquire_minutes_per_casket"],
+            mode="markers",
+            name="Raw acquisition point",
+            marker=dict(
+                size=raw_acq_sizes,
+                color="rgba(29, 78, 216, 0)",
+                line=dict(color="rgba(29, 78, 216, 0.38)", width=1.5),
+            ),
+            customdata=trend_df[["acq_caskets"]],
+            hovertemplate=(
+                "%{x}<br>Raw acquisition: %{y:.4f} min/clue"
+                "<br>Acquired clues: %{customdata[0]:.0f}<extra></extra>"
             ),
         )
     )
@@ -1406,7 +1522,7 @@ def build_end_to_end_minutes_chart(trend_df: pd.DataFrame) -> go.Figure:
             x=trend_df["date_label"],
             y=trend_df["recent_acquire_minutes_per_casket"],
             mode="lines",
-            name="Recent acquisition",
+            name="Recent acquisition (EWMA)",
             line=dict(color="#1d4ed8", width=2.5),
             hovertemplate="%{x}<br>Recent acquisition: %{y:.2f} min/clue<extra></extra>",
         )
@@ -1414,9 +1530,27 @@ def build_end_to_end_minutes_chart(trend_df: pd.DataFrame) -> go.Figure:
     fig.add_trace(
         go.Scatter(
             x=trend_df["date_label"],
+            y=trend_df["raw_complete_minutes_per_casket"],
+            mode="markers",
+            name="Raw completion point",
+            marker=dict(
+                size=raw_comp_sizes,
+                color="rgba(15, 118, 110, 0)",
+                line=dict(color="rgba(15, 118, 110, 0.38)", width=1.5),
+            ),
+            customdata=trend_df[["comp_caskets"]],
+            hovertemplate=(
+                "%{x}<br>Raw completion: %{y:.4f} min/casket"
+                "<br>Completed caskets: %{customdata[0]:.0f}<extra></extra>"
+            ),
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=trend_df["date_label"],
             y=trend_df["recent_complete_minutes_per_casket"],
             mode="lines",
-            name="Recent completion",
+            name="Recent completion (EWMA)",
             line=dict(color="#0f766e", width=2.5),
             hovertemplate="%{x}<br>Recent completion: %{y:.2f} min/casket<extra></extra>",
         )
@@ -1424,11 +1558,11 @@ def build_end_to_end_minutes_chart(trend_df: pd.DataFrame) -> go.Figure:
     fig.add_trace(
         go.Scatter(
             x=trend_df["date_label"],
-            y=trend_df["overall_total_minutes_per_casket"],
+            y=trend_df["all_time_total_minutes_per_casket"],
             mode="lines",
-            name="All logged total average",
+            name="Overall average",
             line=dict(color="#64748b", width=2.5, dash="dot"),
-            hovertemplate="%{x}<br>All logged total average: %{y:.2f} min/casket<extra></extra>",
+            hovertemplate="%{x}<br>Overall average: %{y:.4f} min/casket<extra></extra>",
         )
     )
     fig.update_layout(
@@ -1866,7 +2000,12 @@ comp_sum = summarize_comp(comp_df, goal_caskets)
 acq_metrics_df = prepare_acq_metrics(acq_df)
 comp_metrics_df = prepare_comp_metrics(comp_df)
 end_to_end_sum = summarize_end_to_end(acq_sum, comp_sum, goal_caskets)
-end_to_end_trend_df = build_end_to_end_trend_df(acq_df, comp_df, END_TO_END_RECENT_CASKET_WINDOW)
+end_to_end_trend_df = build_end_to_end_trend_df(
+    acq_df,
+    comp_df,
+    END_TO_END_RECENT_ACQ_EWMA_SPAN,
+    END_TO_END_RECENT_COMP_EWMA_SPAN,
+)
 
 running_acq_total = int(acq_sum.get("total_clues", 0))
 running_comp_total = int(comp_sum.get("total_completed", 0))
@@ -2608,11 +2747,12 @@ with tab_combo:
         st.divider()
         st.subheader("Charts")
         st.caption(
-            f"End-to-end trend lines use the last up to {END_TO_END_RECENT_CASKET_WINDOW} acquired clues "
-            f"and last up to {END_TO_END_RECENT_CASKET_WINDOW} completed caskets, weighted by casket count. "
-            "If only one side is logged on a date, the other side carries forward its last value once it exists; "
-            "before a side has any history, that line stays blank. The dotted gray line is the average from all "
-            "logged data through each date."
+            f"Raw hollow circles are same-day points, and circle size scales with the clues or caskets logged "
+            f"that day. The red lines use a causal EWMA (spans: {END_TO_END_RECENT_ACQ_EWMA_SPAN} acquisition "
+            f"dates and {END_TO_END_RECENT_COMP_EWMA_SPAN} completion dates), so older points do not change when "
+            "newer data is added. If only one side is logged on a date, the other side carries forward its last "
+            "known value once it exists. The dotted gray line is the flat overall weighted average across all "
+            "logged data."
         )
         if end_to_end_sum:
             pie_col1, pie_col2 = st.columns(2)
