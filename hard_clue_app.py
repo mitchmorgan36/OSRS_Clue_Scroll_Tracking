@@ -896,11 +896,15 @@ def resolve_session_log_date(
     selected_date: Any,
     *,
     start_system: datetime | None = None,
+    end_system: datetime | None = None,
     used_system_duration: bool = False,
 ) -> date:
     normalized_date = normalize_draft_date(selected_date, default=today_local()) or today_local()
-    if used_system_duration and start_system is not None:
-        return start_system.astimezone(LOCAL_TIMEZONE).date()
+    if used_system_duration:
+        if end_system is not None:
+            return end_system.astimezone(LOCAL_TIMEZONE).date()
+        if start_system is not None:
+            return start_system.astimezone(LOCAL_TIMEZONE).date()
     return normalized_date
 
 
@@ -2087,6 +2091,7 @@ with st.sidebar:
         resolved_log_date = resolve_session_log_date(
             log_date,
             start_system=ss,
+            end_system=ee,
             used_system_duration=dur_play is None and dur_sys is not None,
         )
 
@@ -2267,6 +2272,7 @@ with st.sidebar:
         resolved_log_date = resolve_session_log_date(
             log_date,
             start_system=ss,
+            end_system=ee,
             used_system_duration=dur_play is None and dur_sys is not None,
         )
 
