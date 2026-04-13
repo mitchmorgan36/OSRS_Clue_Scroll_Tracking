@@ -223,6 +223,20 @@ div[data-testid="column"] div[data-testid="metric-container"] {
   margin-bottom: 0 !important;
 }
 
+.accent-metric {
+  padding: 0.08rem 0.28rem !important;
+}
+.accent-metric-label {
+  font-size: 0.76rem !important;
+  line-height: 1.05 !important;
+  color: rgba(250, 250, 250, 0.85);
+}
+.accent-metric-value {
+  font-size: 1.22rem !important;
+  line-height: 1.0 !important;
+  font-weight: 600;
+}
+
 .goal-caskets-label {
   white-space: nowrap !important;
   display: inline-block;
@@ -951,7 +965,14 @@ def coerce_numeric(df: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
     return out
 
 
-def make_chart_legend_below(y: float = -0.28) -> dict:
+def make_chart_legend_below(y: float | None = None, chart_height: int | None = None) -> dict:
+    if y is None:
+        reference_height = 420.0
+        reference_y = -0.28
+        if chart_height and chart_height > 0:
+            y = reference_y * (reference_height / float(chart_height))
+        else:
+            y = reference_y
     return dict(orientation="h", yanchor="top", y=y, xanchor="center", x=0.5)
 
 
@@ -960,7 +981,7 @@ def make_line_layout(title: str, x_title: str, y_title: str, y2_title: str | Non
         title=title,
         height=height,
         margin=dict(l=40, r=40, t=64, b=165),
-        legend=make_chart_legend_below(),
+        legend=make_chart_legend_below(chart_height=height),
         xaxis=dict(title=dict(text=x_title, standoff=24), automargin=True),
         yaxis=dict(title=y_title),
     )
@@ -987,6 +1008,18 @@ def scale_marker_sizes(
     sizes = pd.Series(min_size, index=vals.index, dtype=float)
     sizes.loc[positive.index] = min_size + scale * (max_size - min_size)
     return sizes.tolist()
+
+
+def render_accent_metric(container: Any, label: str, value: Any, color: str) -> None:
+    container.markdown(
+        (
+            '<div class="accent-metric">'
+            f'<div class="accent-metric-label">{label}</div>'
+            f'<div class="accent-metric-value" style="color: {color};">{value}</div>'
+            "</div>"
+        ),
+        unsafe_allow_html=True,
+    )
 
 
 def minutes_to_hhmm(total_minutes: float) -> str:
@@ -1133,7 +1166,18 @@ def build_range_histogram(series: pd.Series, title: str, x_title: str, y_title: 
         labels.append(f"{float(interval.left):.2f}–{float(interval.right):.2f}")
         counts.append(int(c))
 
-    fig.add_trace(go.Bar(x=labels, y=counts, name="Count", marker_color="#4f46e5"))
+    fig.add_trace(
+        go.Bar(
+            x=labels,
+            y=counts,
+            name="Count",
+            marker_color="#4f46e5",
+            text=counts,
+            textposition="auto",
+            texttemplate="%{text}",
+            cliponaxis=False,
+        )
+    )
     fig.update_layout(
         title=title,
         height=height,
@@ -1162,10 +1206,11 @@ def build_acq_clues_per_hour_chart(df: pd.DataFrame) -> go.Figure:
             name="Clues per hour",
             line=dict(color="#1d4ed8", width=3),
             marker=dict(color="#1d4ed8", size=7),
-            customdata=d[["clues"]],
+            customdata=pd.DataFrame({"clues": d["clues"], "log_date": d["log_date"].astype(str)}),
             hovertemplate=(
                 "Trip %{x}<br>Clues/hr: %{y:.2f}"
-                "<br>Clues obtained: %{customdata[0]:.0f}<extra></extra>"
+                "<br>Clues obtained: %{customdata[0]:.0f}"
+                "<br>Date: %{customdata[1]}<extra></extra>"
             ),
         )
     )
@@ -1211,10 +1256,11 @@ def build_acq_profitability_chart(df: pd.DataFrame) -> go.Figure:
             name="GP cost per clue",
             line=dict(color="#b45309", width=3),
             marker=dict(color="#b45309", size=7),
-            customdata=d[["clues"]],
+            customdata=pd.DataFrame({"clues": d["clues"], "log_date": d["log_date"].astype(str)}),
             hovertemplate=(
                 "Trip %{x}<br>GP cost/clue: %{y:,.0f}"
-                "<br>Clues obtained: %{customdata[0]:.0f}<extra></extra>"
+                "<br>Clues obtained: %{customdata[0]:.0f}"
+                "<br>Date: %{customdata[1]}<extra></extra>"
             ),
         )
     )
@@ -1224,7 +1270,7 @@ def build_acq_profitability_chart(df: pd.DataFrame) -> go.Figure:
             y=d["rolling_10_trip_avg_gp_cost_per_clue"],
             mode="lines",
             name="Rolling 10-trip avg",
-            line=dict(color="#7c2d12", width=3, dash="dash"),
+            line=dict(color="#f59e0b", width=3.5, dash="dash"),
             hovertemplate="Trip %{x}<br>Rolling GP cost/clue: %{y:,.0f}<extra></extra>",
         )
     )
@@ -1236,7 +1282,7 @@ def build_acq_profitability_chart(df: pd.DataFrame) -> go.Figure:
             y=[overall_avg] * len(d),
             mode="lines",
             name="Overall avg",
-            line=dict(color="#f59e0b", width=2, dash="dot"),
+            line=dict(color="#fde68a", width=2, dash="dot"),
             hovertemplate="Trip %{x}<br>Overall GP cost/clue: %{y:,.0f}<extra></extra>",
         )
     )
@@ -1310,10 +1356,16 @@ def build_completion_caskets_per_hour_chart(df: pd.DataFrame) -> go.Figure:
             name="Caskets per hour",
             line=dict(color="#047857", width=3),
             marker=dict(color="#047857", size=7),
-            customdata=d[["clues_completed"]],
+            customdata=pd.DataFrame(
+                {
+                    "clues_completed": d["clues_completed"],
+                    "log_date": d["log_date"].astype(str),
+                }
+            ),
             hovertemplate=(
                 "Session %{x}<br>Caskets/hr: %{y:.2f}"
-                "<br>Caskets completed: %{customdata[0]:.0f}<extra></extra>"
+                "<br>Caskets completed: %{customdata[0]:.0f}"
+                "<br>Date: %{customdata[1]}<extra></extra>"
             ),
         )
     )
@@ -1364,7 +1416,11 @@ def build_completion_caskets_completed_chart(df: pd.DataFrame) -> go.Figure:
             name="Caskets completed",
             line=dict(color="#059669", width=3),
             marker=dict(color="#059669", size=7),
-            hovertemplate="Session %{x}<br>Caskets completed: %{y:.0f}<extra></extra>",
+            customdata=pd.DataFrame({"log_date": d["log_date"].astype(str)}),
+            hovertemplate=(
+                "Session %{x}<br>Caskets completed: %{y:.0f}"
+                "<br>Date: %{customdata[0]}<extra></extra>"
+            ),
         )
     )
     fig.add_trace(
@@ -1474,6 +1530,20 @@ def build_end_to_end_cph_chart(trend_df: pd.DataFrame) -> go.Figure:
     hover_span_data = trend_df[["recent_acq_ewma_span", "recent_comp_ewma_span"]]
     fig.add_trace(
         go.Scatter(
+            x=[None],
+            y=[None],
+            mode="markers",
+            name="Raw same-day points",
+            hoverinfo="skip",
+            marker=dict(
+                size=11,
+                color="rgba(220, 38, 38, 0)",
+                line=dict(color="rgba(220, 38, 38, 0.40)", width=1.5),
+            ),
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
             x=trend_df["date_label"],
             y=trend_df["raw_end_to_end_caskets_per_hour"],
             mode="markers",
@@ -1487,11 +1557,11 @@ def build_end_to_end_cph_chart(trend_df: pd.DataFrame) -> go.Figure:
             customdata=hover_raw_total_data,
             hovertemplate=(
                 "%{x}<br>Raw total pace: %{y:.4f} caskets/hr"
-                "<br>Acquisition component used: %{customdata[0]:.4f} clues/hr"
-                "<br>Completion component used: %{customdata[1]:.4f} caskets/hr"
+                "<br>Raw acquisition pace: %{customdata[0]:.4f} clues/hr"
+                "<br>Raw completion pace: %{customdata[1]:.4f} caskets/hr"
                 "<br>Clues logged on this date: %{customdata[2]:.0f}"
                 "<br>Caskets logged on this date: %{customdata[3]:.0f}"
-                "<br>Total same-day weight: %{customdata[4]:.0f}<extra></extra>"
+                "<br>Date's total weight: %{customdata[4]:.0f}<extra></extra>"
             ),
         )
     )
@@ -1500,12 +1570,12 @@ def build_end_to_end_cph_chart(trend_df: pd.DataFrame) -> go.Figure:
             x=trend_df["date_label"],
             y=trend_df["recent_end_to_end_caskets_per_hour"],
             mode="lines+markers",
-            name="Recent total (EWMA)",
+            name="Recent overall (EWMA)",
             line=dict(color="#dc2626", width=3),
             marker=dict(color="#dc2626", size=7),
             customdata=hover_span_data,
             hovertemplate=(
-                "%{x}<br>Recent total: %{y:.2f} caskets/hr"
+                "%{x}<br>Recent overall: %{y:.2f} caskets/hr"
                 "<br>Acquisition EWMA span: %{customdata[0]:.0f}"
                 "<br>Completion EWMA span: %{customdata[1]:.0f}<extra></extra>"
             ),
@@ -1581,9 +1651,9 @@ def build_end_to_end_cph_chart(trend_df: pd.DataFrame) -> go.Figure:
     )
     fig.update_layout(
         margin=dict(l=40, r=40, t=64, b=165),
-        legend=make_chart_legend_below(),
+        legend=make_chart_legend_below(chart_height=PRIMARY_PACE_CHART_HEIGHT),
         xaxis=dict(
-            title=dict(text="Date", standoff=28),
+            title=dict(text="Date", standoff=24),
             type="category",
             tickangle=-35,
             automargin=True,
@@ -2671,30 +2741,19 @@ tab_acq, tab_comp, tab_combo = st.tabs(["Acquisition", "Completion", "End-to-end
 
 
 with tab_acq:
-    acq_rune_gp_per_clue = acq_sum.get("rune_armor_gp_per_clue", RUNE_ARMOR_GP_PER_CLUE) if acq_sum else RUNE_ARMOR_GP_PER_CLUE
-    acq_chaos_gp_per_clue = acq_sum.get("chaos_rune_gp_per_clue", CHAOS_RUNE_GP_PER_CLUE) if acq_sum else CHAOS_RUNE_GP_PER_CLUE
-    acq_death_gp_per_clue = acq_sum.get("death_rune_gp_per_clue", DEATH_RUNE_GP_PER_CLUE) if acq_sum else DEATH_RUNE_GP_PER_CLUE
-    acq_combined_gp_income_per_clue = (
-        acq_sum.get("combined_acquisition_gp_income_per_clue", COMBINED_ACQUISITION_GP_INCOME_PER_CLUE)
-        if acq_sum
-        else COMBINED_ACQUISITION_GP_INCOME_PER_CLUE
-    )
-    acq_gp_cost_per_clue = acq_sum.get("gp_cost_per_clue") if acq_sum else float("nan")
-    acq_net_gp_per_clue = acq_sum.get("net_gp_per_clue_acquired") if acq_sum else float("nan")
-
-    p1, p2, p3, p4, p5, p6 = st.columns(6)
-    p1.metric("GP per clue from rune armor drops", human_gp_or_na(acq_rune_gp_per_clue))
-    p2.metric("GP per clue from Chaos rune drops", human_gp_or_na(acq_chaos_gp_per_clue))
-    p3.metric("GP per clue from Death rune drops", human_gp_or_na(acq_death_gp_per_clue))
-    p4.metric("Combined acquisition GP income per clue", human_gp_or_na(acq_combined_gp_income_per_clue))
-    p5.metric("GP cost per clue", human_gp_or_na(acq_gp_cost_per_clue))
-    p6.metric("Net GP per clue acquired", human_gp_or_na(acq_net_gp_per_clue))
-
-    st.divider()
-
     if acq_df.empty:
         st.info("No acquisition trips logged yet.")
     else:
+        acq_rune_gp_per_clue = acq_sum.get("rune_armor_gp_per_clue", RUNE_ARMOR_GP_PER_CLUE) if acq_sum else RUNE_ARMOR_GP_PER_CLUE
+        acq_chaos_gp_per_clue = acq_sum.get("chaos_rune_gp_per_clue", CHAOS_RUNE_GP_PER_CLUE) if acq_sum else CHAOS_RUNE_GP_PER_CLUE
+        acq_death_gp_per_clue = acq_sum.get("death_rune_gp_per_clue", DEATH_RUNE_GP_PER_CLUE) if acq_sum else DEATH_RUNE_GP_PER_CLUE
+        acq_combined_gp_income_per_clue = (
+            acq_sum.get("combined_acquisition_gp_income_per_clue", COMBINED_ACQUISITION_GP_INCOME_PER_CLUE)
+            if acq_sum
+            else COMBINED_ACQUISITION_GP_INCOME_PER_CLUE
+        )
+        acq_gp_cost_per_clue = acq_sum.get("gp_cost_per_clue") if acq_sum else float("nan")
+        acq_net_gp_per_clue = acq_sum.get("net_gp_per_clue_acquired") if acq_sum else float("nan")
         total = int(acq_sum["total_clues"])
         remaining = int(acq_goal_remaining)
         rolling = acq_metrics_df["rolling_10_trip_avg_minutes_per_clue"].dropna()
@@ -2711,7 +2770,7 @@ with tab_acq:
         k1.metric("Trips", int(acq_sum["total_trips"]))
         k2.metric("Clues logged", total)
         k3.metric("Avg time / clue", seconds_to_metric_duration(acq_sum["avg_time_clue_s"]))
-        k4.metric("Clues / hour", f"{acq_sum['clues_per_hour']:.2f}")
+        render_accent_metric(k4, "Clues / hour", f"{acq_sum['clues_per_hour']:.2f}", "#1d4ed8")
         k5.metric("Bloods / clue", f"{acq_sum['avg_bloods_per_clue']:.2f}")
         k6.metric("GP spent / clue", human_gp_or_na(acq_sum["avg_gp_per_clue"]))
 
@@ -2724,6 +2783,16 @@ with tab_acq:
         t4.metric("Best rolling 10-trip time / clue", minutes_to_metric_duration(rolling_best))
         t5.metric("Time remaining (acquire)", fmt_hours_minutes(acq_goal_time_remaining_s))
         t6.metric("Remaining caskets", remaining)
+
+        st.divider()
+
+        p1, p2, p3, p4, p5, p6 = st.columns(6)
+        p1.metric("GP per clue from rune armor drops", human_gp_or_na(acq_rune_gp_per_clue))
+        p2.metric("GP per clue from Chaos rune drops", human_gp_or_na(acq_chaos_gp_per_clue))
+        p3.metric("GP per clue from Death rune drops", human_gp_or_na(acq_death_gp_per_clue))
+        p4.metric("Combined acquisition GP income per clue", human_gp_or_na(acq_combined_gp_income_per_clue))
+        p5.metric("GP cost per clue", human_gp_or_na(acq_gp_cost_per_clue))
+        p6.metric("Net GP per clue acquired", human_gp_or_na(acq_net_gp_per_clue))
 
         st.divider()
         st.subheader("Charts")
@@ -2810,7 +2879,7 @@ with tab_comp:
         k1.metric("Sessions", int(comp_sum["total_sessions"]))
         k2.metric("Caskets completed logged", total_completed)
         k3.metric("Avg time / casket", seconds_to_metric_duration(comp_sum["avg_time_casket_s"]))
-        k4.metric("Caskets / hour", f"{comp_sum['caskets_per_hour']:.2f}")
+        render_accent_metric(k4, "Caskets / hour", f"{comp_sum['caskets_per_hour']:.2f}", "#047857")
         k5.metric("Median time / casket", minutes_to_metric_duration(median_minutes_per_casket))
         k6.metric("Rolling 10-session avg time / casket", minutes_to_metric_duration(rolling_latest))
 
@@ -2880,8 +2949,13 @@ with tab_combo:
         a1, a2, a3, a4, _a5 = st.columns(5)
         a1.metric("Acquire time / clue", minutes_to_metric_duration(end_to_end_sum["acquire_minutes_per_clue"]))
         a2.metric("Complete time / casket", minutes_to_metric_duration(end_to_end_sum["complete_minutes_per_casket"]))
-        a3.metric("Total time / casket", minutes_to_metric_duration(end_to_end_sum["total_minutes_per_casket"]))
-        a4.metric("Caskets / hour", f"{end_to_end_sum['end_to_end_caskets_per_hour']:.2f}")
+        a3.metric("Overall time / casket", minutes_to_metric_duration(end_to_end_sum["total_minutes_per_casket"]))
+        render_accent_metric(
+            a4,
+            "Overall caskets / hour",
+            f"{end_to_end_sum['end_to_end_caskets_per_hour']:.2f}",
+            "#dc2626",
+        )
 
         st.divider()
 
