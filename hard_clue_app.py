@@ -223,20 +223,6 @@ div[data-testid="column"] div[data-testid="metric-container"] {
   margin-bottom: 0 !important;
 }
 
-.accent-metric {
-  padding: 0.08rem 0.28rem !important;
-}
-.accent-metric-label {
-  font-size: 0.76rem !important;
-  line-height: 1.05 !important;
-  color: rgba(250, 250, 250, 0.85);
-}
-.accent-metric-value {
-  font-size: 1.22rem !important;
-  line-height: 1.0 !important;
-  font-weight: 600;
-}
-
 .goal-caskets-label {
   white-space: nowrap !important;
   display: inline-block;
@@ -965,14 +951,7 @@ def coerce_numeric(df: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
     return out
 
 
-def make_chart_legend_below(y: float | None = None, chart_height: int | None = None) -> dict:
-    if y is None:
-        reference_height = 420.0
-        reference_y = -0.28
-        if chart_height and chart_height > 0:
-            y = reference_y * (reference_height / float(chart_height))
-        else:
-            y = reference_y
+def make_chart_legend_below(y: float = -0.28) -> dict:
     return dict(orientation="h", yanchor="top", y=y, xanchor="center", x=0.5)
 
 
@@ -981,7 +960,7 @@ def make_line_layout(title: str, x_title: str, y_title: str, y2_title: str | Non
         title=title,
         height=height,
         margin=dict(l=40, r=40, t=64, b=165),
-        legend=make_chart_legend_below(chart_height=height),
+        legend=make_chart_legend_below(),
         xaxis=dict(title=dict(text=x_title, standoff=24), automargin=True),
         yaxis=dict(title=y_title),
     )
@@ -1013,9 +992,9 @@ def scale_marker_sizes(
 def render_accent_metric(container: Any, label: str, value: Any, color: str) -> None:
     container.markdown(
         (
-            '<div class="accent-metric">'
-            f'<div class="accent-metric-label">{label}</div>'
-            f'<div class="accent-metric-value" style="color: {color};">{value}</div>'
+            '<div data-testid="metric-container" class="accent-metric">'
+            f'<label data-testid="stMetricLabel"><div><p>{label}</p></div></label>'
+            f'<div data-testid="stMetricValue" style="color: {color};">{value}</div>'
             "</div>"
         ),
         unsafe_allow_html=True,
@@ -1173,7 +1152,7 @@ def build_range_histogram(series: pd.Series, title: str, x_title: str, y_title: 
             name="Count",
             marker_color="#4f46e5",
             text=counts,
-            textposition="auto",
+            textposition="outside",
             texttemplate="%{text}",
             cliponaxis=False,
         )
@@ -1208,9 +1187,9 @@ def build_acq_clues_per_hour_chart(df: pd.DataFrame) -> go.Figure:
             marker=dict(color="#1d4ed8", size=7),
             customdata=pd.DataFrame({"clues": d["clues"], "log_date": d["log_date"].astype(str)}),
             hovertemplate=(
-                "Trip %{x}<br>Clues/hr: %{y:.2f}"
-                "<br>Clues obtained: %{customdata[0]:.0f}"
-                "<br>Date: %{customdata[1]}<extra></extra>"
+                "Trip %{x}<br>Date: %{customdata[1]}"
+                "<br>Clues/hr: %{y:.2f}"
+                "<br>Clues obtained: %{customdata[0]:.0f}<extra></extra>"
             ),
         )
     )
@@ -1258,9 +1237,9 @@ def build_acq_profitability_chart(df: pd.DataFrame) -> go.Figure:
             marker=dict(color="#b45309", size=7),
             customdata=pd.DataFrame({"clues": d["clues"], "log_date": d["log_date"].astype(str)}),
             hovertemplate=(
-                "Trip %{x}<br>GP cost/clue: %{y:,.0f}"
-                "<br>Clues obtained: %{customdata[0]:.0f}"
-                "<br>Date: %{customdata[1]}<extra></extra>"
+                "Trip %{x}<br>Date: %{customdata[1]}"
+                "<br>GP cost/clue: %{y:,.0f}"
+                "<br>Clues obtained: %{customdata[0]:.0f}<extra></extra>"
             ),
         )
     )
@@ -1270,7 +1249,7 @@ def build_acq_profitability_chart(df: pd.DataFrame) -> go.Figure:
             y=d["rolling_10_trip_avg_gp_cost_per_clue"],
             mode="lines",
             name="Rolling 10-trip avg",
-            line=dict(color="#f59e0b", width=3.5, dash="dash"),
+            line=dict(color="#f59e0b", width=2.5, dash="dash"),
             hovertemplate="Trip %{x}<br>Rolling GP cost/clue: %{y:,.0f}<extra></extra>",
         )
     )
@@ -1363,9 +1342,9 @@ def build_completion_caskets_per_hour_chart(df: pd.DataFrame) -> go.Figure:
                 }
             ),
             hovertemplate=(
-                "Session %{x}<br>Caskets/hr: %{y:.2f}"
-                "<br>Caskets completed: %{customdata[0]:.0f}"
-                "<br>Date: %{customdata[1]}<extra></extra>"
+                "Session %{x}<br>Date: %{customdata[1]}"
+                "<br>Caskets/hr: %{y:.2f}"
+                "<br>Caskets completed: %{customdata[0]:.0f}<extra></extra>"
             ),
         )
     )
@@ -1418,8 +1397,8 @@ def build_completion_caskets_completed_chart(df: pd.DataFrame) -> go.Figure:
             marker=dict(color="#059669", size=7),
             customdata=pd.DataFrame({"log_date": d["log_date"].astype(str)}),
             hovertemplate=(
-                "Session %{x}<br>Caskets completed: %{y:.0f}"
-                "<br>Date: %{customdata[0]}<extra></extra>"
+                "Session %{x}<br>Date: %{customdata[0]}"
+                "<br>Caskets completed: %{y:.0f}<extra></extra>"
             ),
         )
     )
@@ -1570,7 +1549,7 @@ def build_end_to_end_cph_chart(trend_df: pd.DataFrame) -> go.Figure:
             x=trend_df["date_label"],
             y=trend_df["recent_end_to_end_caskets_per_hour"],
             mode="lines+markers",
-            name="Recent overall (EWMA)",
+            name="Recent overall",
             line=dict(color="#dc2626", width=3),
             marker=dict(color="#dc2626", size=7),
             customdata=hover_span_data,
@@ -1604,9 +1583,10 @@ def build_end_to_end_cph_chart(trend_df: pd.DataFrame) -> go.Figure:
         go.Scatter(
             x=trend_df["date_label"],
             y=trend_df["recent_acquire_caskets_per_hour"],
-            mode="lines",
-            name="Recent acquisition (EWMA)",
+            mode="lines+markers",
+            name="Recent acquisition",
             line=dict(color="#1d4ed8", width=2.5),
+            marker=dict(color="#1d4ed8", size=6),
             hovertemplate="%{x}<br>Recent acquisition: %{y:.2f} clues/hr<extra></extra>",
         )
     )
@@ -1633,12 +1613,31 @@ def build_end_to_end_cph_chart(trend_df: pd.DataFrame) -> go.Figure:
         go.Scatter(
             x=trend_df["date_label"],
             y=trend_df["recent_complete_caskets_per_hour"],
-            mode="lines",
-            name="Recent completion (EWMA)",
+            mode="lines+markers",
+            name="Recent completion",
             line=dict(color="#0f766e", width=2.5),
+            marker=dict(color="#0f766e", size=6),
             hovertemplate="%{x}<br>Recent completion: %{y:.2f} caskets/hr<extra></extra>",
         )
     )
+    y_values = pd.concat(
+        [
+            trend_df["raw_end_to_end_caskets_per_hour"],
+            trend_df["recent_end_to_end_caskets_per_hour"],
+            trend_df["raw_acquire_caskets_per_hour"],
+            trend_df["recent_acquire_caskets_per_hour"],
+            trend_df["raw_complete_caskets_per_hour"],
+            trend_df["recent_complete_caskets_per_hour"],
+            trend_df["all_time_end_to_end_caskets_per_hour"],
+        ],
+        axis=0,
+    ).dropna()
+    yaxis_config = dict(title="Caskets per hour", automargin=True)
+    if not y_values.empty:
+        y_min = float(y_values.min())
+        y_max = float(y_values.max())
+        pad = max((y_max - y_min) * 0.08, 0.12)
+        yaxis_config["range"] = [y_min - pad, y_max + pad]
     fig.add_trace(
         go.Scatter(
             x=trend_df["date_label"],
@@ -1651,7 +1650,7 @@ def build_end_to_end_cph_chart(trend_df: pd.DataFrame) -> go.Figure:
     )
     fig.update_layout(
         margin=dict(l=40, r=40, t=64, b=165),
-        legend=make_chart_legend_below(chart_height=PRIMARY_PACE_CHART_HEIGHT),
+        legend=make_chart_legend_below(),
         xaxis=dict(
             title=dict(text="Date", standoff=24),
             type="category",
@@ -1659,7 +1658,8 @@ def build_end_to_end_cph_chart(trend_df: pd.DataFrame) -> go.Figure:
             automargin=True,
             categoryorder="array",
             categoryarray=trend_df["date_label"].tolist(),
-        )
+        ),
+        yaxis=yaxis_config,
     )
     return fig
 
@@ -2368,6 +2368,11 @@ st.caption(
     f" • {clues_on_ground_since_progress_start} clues stacked"
     f" ({fmt_hours_minutes(stacked_clues_completion_time_s)} to complete)"
 )
+st.caption(
+    f"Goal window context: {acq_since_progress_start} / {goal_caskets} clues acquired • "
+    f"{comp_since_progress_start} / {goal_caskets} caskets completed • "
+    f"{goal_progress_remaining} caskets remaining"
+)
 st.progress(
     goal_progress,
     text=(
@@ -2761,11 +2766,6 @@ with tab_acq:
         rolling_best = float(rolling.min()) if not rolling.empty else 0.0
         median_minutes_per_clue = float(acq_metrics_df["minutes_per_clue"].dropna().median()) if acq_metrics_df["minutes_per_clue"].notna().any() else 0.0
 
-        st.caption(
-            f"Goal window: {acq_since_progress_start} / {goal_caskets} clues acquired since start point • "
-            f"{remaining} remaining (lifetime total: {total})"
-        )
-
         k1, k2, k3, k4, k5, k6 = st.columns(6)
         k1.metric("Trips", int(acq_sum["total_trips"]))
         k2.metric("Clues logged", total)
@@ -2870,11 +2870,6 @@ with tab_comp:
         fastest_minutes_per_casket = float(comp_metrics_df["minutes_per_casket"].dropna().min()) if comp_metrics_df["minutes_per_casket"].notna().any() else 0.0
         slowest_minutes_per_casket = float(comp_metrics_df["minutes_per_casket"].dropna().max()) if comp_metrics_df["minutes_per_casket"].notna().any() else 0.0
 
-        st.caption(
-            f"Goal window: {comp_since_progress_start} / {goal_caskets} caskets completed since start point • "
-            f"{remaining} remaining (lifetime total: {total_completed})"
-        )
-
         k1, k2, k3, k4, k5, k6 = st.columns(6)
         k1.metric("Sessions", int(comp_sum["total_sessions"]))
         k2.metric("Caskets completed logged", total_completed)
@@ -2940,12 +2935,6 @@ with tab_combo:
     if acq_df.empty or comp_df.empty or not end_to_end_sum:
         st.info("Log at least one acquisition trip and one completion session to get end-to-end averages.")
     else:
-        st.caption(
-            f"Goal window: {acq_since_progress_start} acquired • "
-            f"{comp_since_progress_start} completed since start point • "
-            f"{int(combo_goal_remaining)} remaining to {goal_caskets}"
-        )
-
         a1, a2, a3, a4, _a5 = st.columns(5)
         a1.metric("Acquire time / clue", minutes_to_metric_duration(end_to_end_sum["acquire_minutes_per_clue"]))
         a2.metric("Complete time / casket", minutes_to_metric_duration(end_to_end_sum["complete_minutes_per_casket"]))
