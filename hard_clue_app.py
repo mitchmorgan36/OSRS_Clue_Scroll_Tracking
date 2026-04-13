@@ -1,4 +1,5 @@
 import inspect
+import math
 from datetime import date, datetime
 from typing import Dict, Any
 from urllib.parse import quote
@@ -209,15 +210,10 @@ div[data-testid="metric-container"] label {
   margin-bottom: 0 !important;
 }
 div[data-testid="metric-container"] [data-testid="stMetricLabel"] p {
-  font-size: 0.76rem !important;
-  line-height: 1.05 !important;
   white-space: normal !important;
   overflow-wrap: anywhere !important;
   text-overflow: clip !important;
-}
-div[data-testid="metric-container"] [data-testid="stMetricValue"] {
-  font-size: 1.22rem !important;
-  line-height: 1.0 !important;
+  line-height: 1.2 !important;
 }
 div[data-testid="metric-container"] [data-testid="stMetricLabel"] {
   overflow: visible !important;
@@ -972,12 +968,7 @@ def coerce_numeric(df: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
 
 def make_chart_legend_below(y: float | None = None, chart_height: int | None = None) -> dict:
     if y is None:
-        reference_height = 420.0
-        reference_y = -0.28
-        if chart_height and chart_height > 0:
-            y = reference_y * (reference_height / float(chart_height))
-        else:
-            y = reference_y
+        y = -0.28
     return dict(orientation="h", yanchor="top", y=y, xanchor="center", x=0.5)
 
 
@@ -987,8 +978,23 @@ def make_line_layout(title: str, x_title: str, y_title: str, y2_title: str | Non
         height=height,
         margin=dict(l=40, r=40, t=64, b=165),
         legend=make_chart_legend_below(chart_height=height),
-        xaxis=dict(title=dict(text=x_title, standoff=24), automargin=True),
-        yaxis=dict(title=y_title),
+        xaxis=dict(
+            title=dict(text=x_title, standoff=24),
+            automargin=True,
+            showline=True,
+            linecolor="rgba(148, 163, 184, 0.42)",
+            ticks="outside",
+            ticklen=5,
+            tickcolor="rgba(148, 163, 184, 0.42)",
+        ),
+        yaxis=dict(
+            title=y_title,
+            showline=True,
+            linecolor="rgba(148, 163, 184, 0.42)",
+            ticks="outside",
+            ticklen=5,
+            tickcolor="rgba(148, 163, 184, 0.42)",
+        ),
     )
     if y2_title is not None:
         layout["yaxis2"] = dict(title=y2_title, overlaying="y", side="right")
@@ -1255,8 +1261,8 @@ def build_acq_profitability_chart(df: pd.DataFrame) -> go.Figure:
             y=d["gp_cost_per_clue"],
             mode="lines+markers",
             name="GP cost per clue",
-            line=dict(color="#b45309", width=3),
-            marker=dict(color="#b45309", size=7),
+            line=dict(color="#b45309", width=2.5),
+            marker=dict(color="#b45309", size=6),
             customdata=pd.DataFrame({"clues": d["clues"], "log_date": d["log_date"].astype(str)}),
             hovertemplate=(
                 "Trip %{x}<br>Date: %{customdata[1]}"
@@ -1534,7 +1540,7 @@ def build_end_to_end_cph_chart(trend_df: pd.DataFrame) -> go.Figure:
             x=[None],
             y=[None],
             mode="markers",
-            name="Raw same-day points",
+            name="Raw points",
             hoverinfo="skip",
             marker=dict(
                 size=11,
@@ -1654,12 +1660,31 @@ def build_end_to_end_cph_chart(trend_df: pd.DataFrame) -> go.Figure:
         ],
         axis=0,
     ).dropna()
-    yaxis_config = dict(title="Caskets per hour", automargin=True)
+    yaxis_config = dict(
+        title="Caskets per hour",
+        automargin=True,
+        showline=True,
+        linecolor="rgba(148, 163, 184, 0.42)",
+        ticks="outside",
+        ticklen=5,
+        tickcolor="rgba(148, 163, 184, 0.42)",
+    )
     if not y_values.empty:
         y_min = float(y_values.min())
         y_max = float(y_values.max())
-        pad = max((y_max - y_min) * 0.08, 0.12)
-        yaxis_config["range"] = [y_min - pad, y_max + pad]
+        span = max(y_max - y_min, 0.01)
+        pad = max(span * 0.06, 0.08)
+        if span <= 1.5:
+            dtick = 0.25
+        elif span <= 3.0:
+            dtick = 0.5
+        else:
+            dtick = 1.0
+        y_lower = max(0.0, math.floor((y_min - pad) / dtick) * dtick)
+        y_upper = math.ceil((y_max + pad) / dtick) * dtick
+        if y_upper <= y_lower:
+            y_upper = y_lower + dtick
+        yaxis_config.update(range=[y_lower, y_upper], tickmode="linear", dtick=dtick)
     fig.add_trace(
         go.Scatter(
             x=trend_df["date_label"],
@@ -1680,6 +1705,11 @@ def build_end_to_end_cph_chart(trend_df: pd.DataFrame) -> go.Figure:
             automargin=True,
             categoryorder="array",
             categoryarray=trend_df["date_label"].tolist(),
+            showline=True,
+            linecolor="rgba(148, 163, 184, 0.42)",
+            ticks="outside",
+            ticklen=5,
+            tickcolor="rgba(148, 163, 184, 0.42)",
         ),
         yaxis=yaxis_config,
     )
@@ -2809,12 +2839,12 @@ with tab_acq:
         st.divider()
 
         p1, p2, p3, p4, p5, p6 = st.columns(6)
-        p1.metric("GP per clue from rune armor drops", human_gp_or_na(acq_rune_gp_per_clue))
-        p2.metric("GP per clue from Chaos rune drops", human_gp_or_na(acq_chaos_gp_per_clue))
-        p3.metric("GP per clue from Death rune drops", human_gp_or_na(acq_death_gp_per_clue))
-        p4.metric("Combined acquisition GP income per clue", human_gp_or_na(acq_combined_gp_income_per_clue))
+        p1.metric("Rune armor GP / clue", human_gp_or_na(acq_rune_gp_per_clue))
+        p2.metric("Chaos rune GP / clue", human_gp_or_na(acq_chaos_gp_per_clue))
+        p3.metric("Death rune GP / clue", human_gp_or_na(acq_death_gp_per_clue))
+        p4.metric("Combined acquisition GP / clue", human_gp_or_na(acq_combined_gp_income_per_clue))
         p5.metric("GP cost per clue", human_gp_or_na(acq_gp_cost_per_clue))
-        p6.metric("Net GP per clue acquired", human_gp_or_na(acq_net_gp_per_clue))
+        p6.metric("Net acquisition GP / clue", human_gp_or_na(acq_net_gp_per_clue))
 
         st.divider()
         st.subheader("Charts")
@@ -2971,9 +3001,9 @@ with tab_combo:
         st.divider()
 
         p1, p2, p3, p4, p5 = st.columns(5)
-        p1.metric("Expected income / clue (acquisition)", human_gp_or_na(end_to_end_sum["combined_acquisition_gp_income_per_clue"]))
-        p2.metric("Expected cost / clue (acquisition)", human_gp_or_na(end_to_end_sum["expected_cost_per_clue_acquisition"]))
-        p3.metric("Net expected GP / clue (acquisition)", human_gp_or_na(end_to_end_sum["net_gp_per_clue_on_acquisition"]))
+        p1.metric("Expected acquisition income / clue", human_gp_or_na(end_to_end_sum["combined_acquisition_gp_income_per_clue"]))
+        p2.metric("Expected acquisition cost / clue", human_gp_or_na(end_to_end_sum["expected_cost_per_clue_acquisition"]))
+        p3.metric("Net expected acquisition GP / clue", human_gp_or_na(end_to_end_sum["net_gp_per_clue_on_acquisition"]))
         p4.metric("Expected alch income / casket", human_gp_or_na(end_to_end_sum["expected_income_per_casket_alch"]))
         p5.metric("Net GP / casket (full process)", human_gp_or_na(end_to_end_sum["net_gp_per_casket"]))
 
