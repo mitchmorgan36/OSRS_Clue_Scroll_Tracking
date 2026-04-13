@@ -211,16 +211,35 @@ div[data-testid="metric-container"] label {
 div[data-testid="metric-container"] [data-testid="stMetricLabel"] p {
   font-size: 0.76rem !important;
   line-height: 1.05 !important;
+  white-space: normal !important;
+  overflow-wrap: anywhere !important;
+  text-overflow: clip !important;
 }
 div[data-testid="metric-container"] [data-testid="stMetricValue"] {
   font-size: 1.22rem !important;
   line-height: 1.0 !important;
+}
+div[data-testid="metric-container"] [data-testid="stMetricLabel"] {
+  overflow: visible !important;
+}
+div[data-testid="metric-container"] label {
+  overflow: visible !important;
 }
 
 /* Slightly reduce default spacing around column blocks holding metrics */
 div[data-testid="column"] div[data-testid="metric-container"] {
   margin-top: 0 !important;
   margin-bottom: 0 !important;
+}
+
+div.st-key-metric_acq_cph div[data-testid="stMetricValue"] {
+  color: #1d4ed8 !important;
+}
+div.st-key-metric_comp_cph div[data-testid="stMetricValue"] {
+  color: #047857 !important;
+}
+div.st-key-metric_overall_cph div[data-testid="stMetricValue"] {
+  color: #dc2626 !important;
 }
 
 .goal-caskets-label {
@@ -951,7 +970,14 @@ def coerce_numeric(df: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
     return out
 
 
-def make_chart_legend_below(y: float = -0.28) -> dict:
+def make_chart_legend_below(y: float | None = None, chart_height: int | None = None) -> dict:
+    if y is None:
+        reference_height = 420.0
+        reference_y = -0.28
+        if chart_height and chart_height > 0:
+            y = reference_y * (reference_height / float(chart_height))
+        else:
+            y = reference_y
     return dict(orientation="h", yanchor="top", y=y, xanchor="center", x=0.5)
 
 
@@ -960,7 +986,7 @@ def make_line_layout(title: str, x_title: str, y_title: str, y2_title: str | Non
         title=title,
         height=height,
         margin=dict(l=40, r=40, t=64, b=165),
-        legend=make_chart_legend_below(),
+        legend=make_chart_legend_below(chart_height=height),
         xaxis=dict(title=dict(text=x_title, standoff=24), automargin=True),
         yaxis=dict(title=y_title),
     )
@@ -989,16 +1015,12 @@ def scale_marker_sizes(
     return sizes.tolist()
 
 
-def render_accent_metric(container: Any, label: str, value: Any, color: str) -> None:
-    container.markdown(
-        (
-            '<div data-testid="metric-container" class="accent-metric">'
-            f'<label data-testid="stMetricLabel"><div><p>{label}</p></div></label>'
-            f'<div data-testid="stMetricValue" style="color: {color};">{value}</div>'
-            "</div>"
-        ),
-        unsafe_allow_html=True,
-    )
+def render_accent_metric(container: Any, label: str, value: Any, key: str) -> None:
+    try:
+        metric_container = container.container(key=key)
+    except TypeError:
+        metric_container = container.container()
+    metric_container.metric(label, value)
 
 
 def minutes_to_hhmm(total_minutes: float) -> str:
@@ -1650,7 +1672,7 @@ def build_end_to_end_cph_chart(trend_df: pd.DataFrame) -> go.Figure:
     )
     fig.update_layout(
         margin=dict(l=40, r=40, t=64, b=165),
-        legend=make_chart_legend_below(),
+        legend=make_chart_legend_below(chart_height=PRIMARY_PACE_CHART_HEIGHT),
         xaxis=dict(
             title=dict(text="Date", standoff=24),
             type="category",
@@ -2770,7 +2792,7 @@ with tab_acq:
         k1.metric("Trips", int(acq_sum["total_trips"]))
         k2.metric("Clues logged", total)
         k3.metric("Avg time / clue", seconds_to_metric_duration(acq_sum["avg_time_clue_s"]))
-        render_accent_metric(k4, "Clues / hour", f"{acq_sum['clues_per_hour']:.2f}", "#1d4ed8")
+        render_accent_metric(k4, "Clues / hour", f"{acq_sum['clues_per_hour']:.2f}", "metric_acq_cph")
         k5.metric("Bloods / clue", f"{acq_sum['avg_bloods_per_clue']:.2f}")
         k6.metric("GP spent / clue", human_gp_or_na(acq_sum["avg_gp_per_clue"]))
 
@@ -2781,7 +2803,7 @@ with tab_acq:
         t2.metric("Rolling 10-trip avg time / clue", minutes_to_metric_duration(rolling_latest))
         t3.metric("Median time / clue", minutes_to_metric_duration(median_minutes_per_clue))
         t4.metric("Best rolling 10-trip time / clue", minutes_to_metric_duration(rolling_best))
-        t5.metric("Time remaining (acquire)", fmt_hours_minutes(acq_goal_time_remaining_s))
+        t5.metric("Time remaining (acquisition)", fmt_hours_minutes(acq_goal_time_remaining_s))
         t6.metric("Remaining caskets", remaining)
 
         st.divider()
@@ -2874,7 +2896,7 @@ with tab_comp:
         k1.metric("Sessions", int(comp_sum["total_sessions"]))
         k2.metric("Caskets completed logged", total_completed)
         k3.metric("Avg time / casket", seconds_to_metric_duration(comp_sum["avg_time_casket_s"]))
-        render_accent_metric(k4, "Caskets / hour", f"{comp_sum['caskets_per_hour']:.2f}", "#047857")
+        render_accent_metric(k4, "Caskets / hour", f"{comp_sum['caskets_per_hour']:.2f}", "metric_comp_cph")
         k5.metric("Median time / casket", minutes_to_metric_duration(median_minutes_per_casket))
         k6.metric("Rolling 10-session avg time / casket", minutes_to_metric_duration(rolling_latest))
 
@@ -2885,8 +2907,8 @@ with tab_comp:
         t2.metric("Best rolling 10-session time / casket", minutes_to_metric_duration(rolling_best))
         t3.metric("Fastest session time / casket", minutes_to_metric_duration(fastest_minutes_per_casket))
         t4.metric("Slowest session time / casket", minutes_to_metric_duration(slowest_minutes_per_casket))
-        t5.metric("Time remaining (complete)", fmt_hours_minutes(comp_goal_time_remaining_s))
-        t6.metric(f"Remaining to {goal_caskets} (complete)", remaining)
+        t5.metric("Time remaining (completion)", fmt_hours_minutes(comp_goal_time_remaining_s))
+        t6.metric(f"Remaining to {goal_caskets} (completion)", remaining)
 
         st.divider()
         st.subheader("Charts")
@@ -2943,7 +2965,7 @@ with tab_combo:
             a4,
             "Overall caskets / hour",
             f"{end_to_end_sum['end_to_end_caskets_per_hour']:.2f}",
-            "#dc2626",
+            "metric_overall_cph",
         )
 
         st.divider()
