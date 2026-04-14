@@ -25,6 +25,7 @@ DEFAULT_CLUES_PER_TRIP = 5
 END_TO_END_RECENT_ACQ_EWMA_SPAN = 8
 END_TO_END_RECENT_COMP_EWMA_SPAN = 4
 PRIMARY_PACE_CHART_HEIGHT = 600
+SECONDARY_DETAIL_CHART_HEIGHT = 500
 GOAL_HEADER_CONTROL_WIDTH_PX = 200
 GOAL_HEADER_CONTROLS_CONTAINER_WIDTH_PX = (GOAL_HEADER_CONTROL_WIDTH_PX * 2) + 24
 
@@ -968,7 +969,14 @@ def coerce_numeric(df: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
 
 def make_chart_legend_below(y: float | None = None, chart_height: int | None = None) -> dict:
     if y is None:
-        y = -0.28
+        reference_height = float(PRIMARY_PACE_CHART_HEIGHT)
+        reference_plot_height = max(1.0, reference_height - 64.0 - 165.0)
+        reference_y = -0.28
+        if chart_height and chart_height > 0:
+            plot_height = max(1.0, float(chart_height) - 64.0 - 165.0)
+            y = reference_y * math.sqrt(reference_plot_height / plot_height)
+        else:
+            y = reference_y
     return dict(orientation="h", yanchor="top", y=y, xanchor="center", x=0.5)
 
 
@@ -1145,7 +1153,13 @@ def prepare_comp_metrics(df: pd.DataFrame) -> pd.DataFrame:
     return d
 
 
-def build_range_histogram(series: pd.Series, title: str, x_title: str, y_title: str, height: int = 340) -> go.Figure:
+def build_range_histogram(
+    series: pd.Series,
+    title: str,
+    x_title: str,
+    y_title: str,
+    height: int = SECONDARY_DETAIL_CHART_HEIGHT,
+) -> go.Figure:
     values = pd.to_numeric(series, errors="coerce").dropna()
     fig = go.Figure()
     if values.empty:
@@ -1189,8 +1203,22 @@ def build_range_histogram(series: pd.Series, title: str, x_title: str, y_title: 
         title=title,
         height=height,
         margin=dict(l=40, r=20, t=48, b=40),
-        xaxis=dict(title=x_title),
-        yaxis=dict(title=y_title),
+        xaxis=dict(
+            title=x_title,
+            showline=True,
+            linecolor="rgba(148, 163, 184, 0.42)",
+            ticks="outside",
+            ticklen=5,
+            tickcolor="rgba(148, 163, 184, 0.42)",
+        ),
+        yaxis=dict(
+            title=y_title,
+            showline=True,
+            linecolor="rgba(148, 163, 184, 0.42)",
+            ticks="outside",
+            ticklen=5,
+            tickcolor="rgba(148, 163, 184, 0.42)",
+        ),
         showlegend=False,
     )
     return fig
@@ -1250,7 +1278,12 @@ def build_acq_profitability_chart(df: pd.DataFrame) -> go.Figure:
     d = df.dropna(subset=["trip_id"]).sort_values("trip_id").copy()
     fig = go.Figure()
     fig.update_layout(
-        **make_line_layout("GP cost per clue by trip", "Trip #", "GP per clue", height=420)
+        **make_line_layout(
+            "GP cost per clue by trip",
+            "Trip #",
+            "GP per clue",
+            height=SECONDARY_DETAIL_CHART_HEIGHT,
+        )
     )
     if d.empty:
         return fig
@@ -1300,7 +1333,12 @@ def build_completion_minutes_per_casket_chart(df: pd.DataFrame) -> go.Figure:
     d = df.dropna(subset=["session_id", "minutes_per_casket"]).sort_values("session_id").copy()
     fig = go.Figure()
     fig.update_layout(
-        **make_line_layout("Minutes per casket by session", "Session #", "Minutes per casket", height=420)
+        **make_line_layout(
+            "Minutes per casket by session",
+            "Session #",
+            "Minutes per casket",
+            height=SECONDARY_DETAIL_CHART_HEIGHT,
+        )
     )
     if d.empty:
         return fig
@@ -1405,7 +1443,12 @@ def build_completion_caskets_completed_chart(df: pd.DataFrame) -> go.Figure:
     d = df.dropna(subset=["session_id", "clues_completed"]).sort_values("session_id").copy()
     fig = go.Figure()
     fig.update_layout(
-        **make_line_layout("Caskets completed by session", "Session #", "Caskets completed", height=420)
+        **make_line_layout(
+            "Caskets completed by session",
+            "Session #",
+            "Caskets completed",
+            height=SECONDARY_DETAIL_CHART_HEIGHT,
+        )
     )
     if d.empty:
         return fig
