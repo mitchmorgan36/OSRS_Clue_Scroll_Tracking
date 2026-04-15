@@ -2341,12 +2341,19 @@ comp_sum = summarize_comp(comp_df, goal_caskets)
 acq_metrics_df = prepare_acq_metrics(acq_df)
 comp_metrics_df = prepare_comp_metrics(comp_df)
 end_to_end_sum = summarize_end_to_end(acq_sum, comp_sum, goal_caskets)
-end_to_end_trend_df = build_end_to_end_trend_df(
-    acq_df,
-    comp_df,
-    END_TO_END_RECENT_ACQ_EWMA_SPAN,
-    END_TO_END_RECENT_COMP_EWMA_SPAN,
-)
+build_end_to_end_trend_params = inspect.signature(build_end_to_end_trend_df).parameters
+if len(build_end_to_end_trend_params) >= 4:
+    end_to_end_trend_df = build_end_to_end_trend_df(
+        acq_df,
+        comp_df,
+        END_TO_END_RECENT_ACQ_EWMA_SPAN,
+        END_TO_END_RECENT_COMP_EWMA_SPAN,
+    )
+else:
+    # Guard hot-reload sessions where Streamlit reran the app against an older
+    # imported helper that still expects the previous single-window signature.
+    fallback_window = max(END_TO_END_RECENT_ACQ_EWMA_SPAN, END_TO_END_RECENT_COMP_EWMA_SPAN)
+    end_to_end_trend_df = build_end_to_end_trend_df(acq_df, comp_df, fallback_window)
 
 running_acq_total = int(acq_sum.get("total_clues", 0))
 running_comp_total = int(comp_sum.get("total_completed", 0))
