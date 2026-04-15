@@ -26,7 +26,14 @@ END_TO_END_RECENT_ACQ_EWMA_SPAN = 8
 END_TO_END_RECENT_COMP_EWMA_SPAN = 4
 PRIMARY_PACE_CHART_HEIGHT = 600
 SECONDARY_DETAIL_CHART_HEIGHT = 500
-SECONDARY_HISTOGRAM_HEIGHT = 375
+CHART_TOP_MARGIN = 64
+LINE_CHART_BOTTOM_MARGIN = 165
+HISTOGRAM_BOTTOM_MARGIN = 80
+PRIMARY_LEGEND_Y = -0.16
+SECONDARY_LEGEND_Y = -0.19
+SECONDARY_HISTOGRAM_HEIGHT = (
+    SECONDARY_DETAIL_CHART_HEIGHT - LINE_CHART_BOTTOM_MARGIN + HISTOGRAM_BOTTOM_MARGIN
+)
 GOAL_HEADER_CONTROL_WIDTH_PX = 200
 GOAL_HEADER_CONTROLS_CONTAINER_WIDTH_PX = (GOAL_HEADER_CONTROL_WIDTH_PX * 2) + 24
 
@@ -970,16 +977,23 @@ def coerce_numeric(df: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
 
 def make_chart_legend_below(y: float | None = None, chart_height: int | None = None) -> dict:
     if y is None:
-        y = -0.16
+        y = PRIMARY_LEGEND_Y
     return dict(orientation="h", yanchor="top", y=y, xanchor="center", x=0.5)
 
 
-def make_line_layout(title: str, x_title: str, y_title: str, y2_title: str | None = None, height: int = 380) -> dict:
+def make_line_layout(
+    title: str,
+    x_title: str,
+    y_title: str,
+    y2_title: str | None = None,
+    height: int = 380,
+    legend_y: float | None = None,
+) -> dict:
     layout = dict(
         title=title,
         height=height,
-        margin=dict(l=40, r=40, t=64, b=165),
-        legend=make_chart_legend_below(chart_height=height),
+        margin=dict(l=40, r=40, t=CHART_TOP_MARGIN, b=LINE_CHART_BOTTOM_MARGIN),
+        legend=make_chart_legend_below(y=legend_y, chart_height=height),
         xaxis=dict(
             title=dict(text=x_title, standoff=24),
             automargin=True,
@@ -1196,7 +1210,7 @@ def build_range_histogram(
     fig.update_layout(
         title=title,
         height=height,
-        margin=dict(l=40, r=20, t=48, b=40),
+        margin=dict(l=40, r=20, t=CHART_TOP_MARGIN, b=HISTOGRAM_BOTTOM_MARGIN),
         xaxis=dict(
             title=x_title,
             showline=True,
@@ -1277,6 +1291,7 @@ def build_acq_profitability_chart(df: pd.DataFrame) -> go.Figure:
             "Trip #",
             "GP per clue",
             height=SECONDARY_DETAIL_CHART_HEIGHT,
+            legend_y=SECONDARY_LEGEND_Y,
         )
     )
     if d.empty:
@@ -1332,6 +1347,7 @@ def build_completion_minutes_per_casket_chart(df: pd.DataFrame) -> go.Figure:
             "Session #",
             "Minutes per casket",
             height=SECONDARY_DETAIL_CHART_HEIGHT,
+            legend_y=SECONDARY_LEGEND_Y,
         )
     )
     if d.empty:
@@ -1442,6 +1458,7 @@ def build_completion_caskets_completed_chart(df: pd.DataFrame) -> go.Figure:
             "Session #",
             "Caskets completed",
             height=SECONDARY_DETAIL_CHART_HEIGHT,
+            legend_y=SECONDARY_LEGEND_Y,
         )
     )
     if d.empty:
