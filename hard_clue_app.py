@@ -26,6 +26,7 @@ END_TO_END_RECENT_ACQ_EWMA_SPAN = 8
 END_TO_END_RECENT_COMP_EWMA_SPAN = 4
 PRIMARY_PACE_CHART_HEIGHT = 600
 SECONDARY_DETAIL_CHART_HEIGHT = 500
+SECONDARY_HISTOGRAM_HEIGHT = 375
 GOAL_HEADER_CONTROL_WIDTH_PX = 200
 GOAL_HEADER_CONTROLS_CONTAINER_WIDTH_PX = (GOAL_HEADER_CONTROL_WIDTH_PX * 2) + 24
 
@@ -969,14 +970,7 @@ def coerce_numeric(df: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
 
 def make_chart_legend_below(y: float | None = None, chart_height: int | None = None) -> dict:
     if y is None:
-        reference_height = float(PRIMARY_PACE_CHART_HEIGHT)
-        reference_plot_height = max(1.0, reference_height - 64.0 - 165.0)
-        reference_y = -0.28
-        if chart_height and chart_height > 0:
-            plot_height = max(1.0, float(chart_height) - 64.0 - 165.0)
-            y = reference_y * math.sqrt(reference_plot_height / plot_height)
-        else:
-            y = reference_y
+        y = -0.16
     return dict(orientation="h", yanchor="top", y=y, xanchor="center", x=0.5)
 
 
@@ -1158,7 +1152,7 @@ def build_range_histogram(
     title: str,
     x_title: str,
     y_title: str,
-    height: int = SECONDARY_DETAIL_CHART_HEIGHT,
+    height: int = SECONDARY_HISTOGRAM_HEIGHT,
 ) -> go.Figure:
     values = pd.to_numeric(series, errors="coerce").dropna()
     fig = go.Figure()
@@ -1658,7 +1652,7 @@ def build_end_to_end_cph_chart(trend_df: pd.DataFrame) -> go.Figure:
             name="Recent acquisition",
             line=dict(color="#1d4ed8", width=2.5),
             marker=dict(color="#1d4ed8", size=6),
-            hovertemplate="%{x}<br>Recent acquisition: %{y:.2f} clues/hr<extra></extra>",
+            hovertemplate="%{x}<br>Recent acquisition pace: %{y:.2f} clues/hr<extra></extra>",
         )
     )
     fig.add_trace(
@@ -1688,7 +1682,7 @@ def build_end_to_end_cph_chart(trend_df: pd.DataFrame) -> go.Figure:
             name="Recent completion",
             line=dict(color="#0f766e", width=2.5),
             marker=dict(color="#0f766e", size=6),
-            hovertemplate="%{x}<br>Recent completion: %{y:.2f} caskets/hr<extra></extra>",
+            hovertemplate="%{x}<br>Recent completion pace: %{y:.2f} caskets/hr<extra></extra>",
         )
     )
     y_values = pd.concat(
