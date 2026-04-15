@@ -31,6 +31,7 @@ LINE_CHART_BOTTOM_MARGIN = 165
 HISTOGRAM_BOTTOM_MARGIN = 80
 PRIMARY_LEGEND_Y = -0.16
 SECONDARY_LEGEND_Y = -0.22
+END_TO_END_X_TITLE_STANDOFF = 38
 SECONDARY_HISTOGRAM_HEIGHT = (
     SECONDARY_DETAIL_CHART_HEIGHT - LINE_CHART_BOTTOM_MARGIN + HISTOGRAM_BOTTOM_MARGIN
 )
@@ -1753,7 +1754,7 @@ def build_end_to_end_cph_chart(trend_df: pd.DataFrame) -> go.Figure:
         margin=dict(l=40, r=40, t=64, b=165),
         legend=make_chart_legend_below(chart_height=PRIMARY_PACE_CHART_HEIGHT),
         xaxis=dict(
-            title=dict(text="Date", standoff=24),
+            title=dict(text="Date", standoff=END_TO_END_X_TITLE_STANDOFF),
             type="category",
             tickangle=-35,
             automargin=True,
