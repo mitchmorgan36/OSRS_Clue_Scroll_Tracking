@@ -976,6 +976,116 @@ def coerce_numeric(df: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
     return out
 
 
+ADJUSTED_END_TO_END_COLUMNS = (
+    "adjusted_acquire_minutes_per_casket",
+    "adjusted_complete_minutes_per_casket",
+    "adjusted_total_minutes_per_casket",
+    "adjusted_end_to_end_caskets_per_hour",
+    "adjusted_acquire_same_day_share",
+    "adjusted_complete_same_day_share",
+    "adjusted_acquire_baseline_caskets",
+    "adjusted_complete_baseline_caskets",
+)
+
+
+def exp_weighted_activity_count(counts: pd.Series, span: int) -> pd.Series:
+    qty = pd.to_numeric(counts, errors="coerce")
+    valid = qty.notna() & (qty > 0)
+    if not valid.any():
+        return pd.Series(float("nan"), index=counts.index)
+
+    active_counts = qty[valid].astype(float)
+    active_ewma = active_counts.ewm(span=max(1, int(span)), adjust=False).mean()
+    return active_ewma.reindex(counts.index).ffill()
+
+
+def sample_adjusted_component(
+    raw_minutes: pd.Series,
+    recent_minutes: pd.Series,
+    same_day_count: pd.Series,
+    prior_recent_count: pd.Series,
+    prior_recent_minutes: pd.Series,
+) -> tuple[pd.Series, pd.Series]:
+    raw = pd.to_numeric(raw_minutes, errors="coerce")
+    recent = pd.to_numeric(recent_minutes, errors="coerce")
+    qty = pd.to_numeric(same_day_count, errors="coerce").fillna(0.0)
+    baseline_qty = pd.to_numeric(prior_recent_count, errors="coerce")
+    baseline_minutes = pd.to_numeric(prior_recent_minutes, errors="coerce")
+
+    adjusted = recent.copy()
+    same_day_share = pd.Series(0.0, index=raw.index, dtype=float)
+    has_activity = raw.notna() & (qty > 0)
+    has_baseline = baseline_minutes.notna() & baseline_qty.notna() & (baseline_qty > 0)
+
+    blend = has_activity & has_baseline
+    adjusted.loc[blend] = (
+        (raw.loc[blend] * qty.loc[blend])
+        + (baseline_minutes.loc[blend] * baseline_qty.loc[blend])
+    ).div(qty.loc[blend] + baseline_qty.loc[blend])
+    same_day_share.loc[blend] = qty.loc[blend].div(qty.loc[blend] + baseline_qty.loc[blend])
+
+    raw_only = has_activity & ~has_baseline
+    adjusted.loc[raw_only] = raw.loc[raw_only]
+    same_day_share.loc[raw_only] = 1.0
+
+    return adjusted, same_day_share
+
+
+def minutes_to_caskets_per_hour_series(minutes_per_casket: pd.Series) -> pd.Series:
+    values = pd.to_numeric(minutes_per_casket, errors="coerce")
+    return 60.0 / values.where(values > 0)
+
+
+def ensure_adjusted_end_to_end_columns(trend_df: pd.DataFrame) -> pd.DataFrame:
+    if trend_df.empty or all(col in trend_df.columns for col in ADJUSTED_END_TO_END_COLUMNS):
+        return trend_df
+
+    d = trend_df.copy()
+    for col in ("acq_caskets", "comp_caskets"):
+        if col not in d.columns:
+            d[col] = 0.0
+        d[col] = pd.to_numeric(d[col], errors="coerce").fillna(0.0)
+
+    if "recent_acq_caskets_per_day" not in d.columns:
+        d["recent_acq_caskets_per_day"] = exp_weighted_activity_count(
+            d["acq_caskets"],
+            END_TO_END_RECENT_ACQ_EWMA_SPAN,
+        )
+    if "recent_comp_caskets_per_day" not in d.columns:
+        d["recent_comp_caskets_per_day"] = exp_weighted_activity_count(
+            d["comp_caskets"],
+            END_TO_END_RECENT_COMP_EWMA_SPAN,
+        )
+
+    d["adjusted_acquire_baseline_caskets"] = d["recent_acq_caskets_per_day"].shift(1)
+    d["adjusted_complete_baseline_caskets"] = d["recent_comp_caskets_per_day"].shift(1)
+    d["adjusted_acquire_minutes_per_casket"], d["adjusted_acquire_same_day_share"] = (
+        sample_adjusted_component(
+            d.get("raw_acquire_minutes_per_casket", pd.Series(float("nan"), index=d.index)),
+            d.get("recent_acquire_minutes_per_casket", pd.Series(float("nan"), index=d.index)),
+            d["acq_caskets"],
+            d["adjusted_acquire_baseline_caskets"],
+            d.get("recent_acquire_minutes_per_casket", pd.Series(float("nan"), index=d.index)).shift(1),
+        )
+    )
+    d["adjusted_complete_minutes_per_casket"], d["adjusted_complete_same_day_share"] = (
+        sample_adjusted_component(
+            d.get("raw_complete_minutes_per_casket", pd.Series(float("nan"), index=d.index)),
+            d.get("recent_complete_minutes_per_casket", pd.Series(float("nan"), index=d.index)),
+            d["comp_caskets"],
+            d["adjusted_complete_baseline_caskets"],
+            d.get("recent_complete_minutes_per_casket", pd.Series(float("nan"), index=d.index)).shift(1),
+        )
+    )
+    d["adjusted_total_minutes_per_casket"] = (
+        d["adjusted_acquire_minutes_per_casket"] + d["adjusted_complete_minutes_per_casket"]
+    )
+    d["adjusted_end_to_end_caskets_per_hour"] = minutes_to_caskets_per_hour_series(
+        d["adjusted_total_minutes_per_casket"]
+    )
+    return d
+
+
 def make_chart_legend_below(y: float | None = None, chart_height: int | None = None) -> dict:
     if y is None:
         y = PRIMARY_LEGEND_Y
@@ -2369,6 +2479,7 @@ else:
     # imported helper that still expects the previous single-window signature.
     fallback_window = max(END_TO_END_RECENT_ACQ_EWMA_SPAN, END_TO_END_RECENT_COMP_EWMA_SPAN)
     end_to_end_trend_df = build_end_to_end_trend_df(acq_df, comp_df, fallback_window)
+end_to_end_trend_df = ensure_adjusted_end_to_end_columns(end_to_end_trend_df)
 
 running_acq_total = int(acq_sum.get("total_clues", 0))
 running_comp_total = int(comp_sum.get("total_completed", 0))
