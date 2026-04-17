@@ -1883,6 +1883,140 @@ def build_end_to_end_cph_chart(trend_df: pd.DataFrame) -> go.Figure:
     return fig
 
 
+def build_end_to_end_deviation_chart(trend_df: pd.DataFrame) -> go.Figure:
+    fig = go.Figure()
+    chart_height = SECONDARY_DETAIL_CHART_HEIGHT
+    fig.update_layout(
+        title="End-to-end daily deviation",
+        height=chart_height,
+        margin=dict(l=40, r=40, t=CHART_TOP_MARGIN, b=LINE_CHART_BOTTOM_MARGIN),
+        legend=make_chart_legend_below(y=SECONDARY_LEGEND_Y, chart_height=chart_height),
+        barmode="overlay",
+        bargap=0.28,
+        xaxis=dict(
+            title=dict(text="Date", standoff=END_TO_END_X_TITLE_STANDOFF),
+            type="category",
+            tickangle=-35,
+            automargin=True,
+            categoryorder="array",
+            categoryarray=trend_df["date_label"].tolist() if "date_label" in trend_df else [],
+            showline=True,
+            linecolor="rgba(148, 163, 184, 0.42)",
+            ticks="outside",
+            ticklen=5,
+            tickcolor="rgba(148, 163, 184, 0.42)",
+        ),
+        yaxis=dict(
+            title="Deviation from benchmark",
+            ticksuffix="%",
+            zeroline=True,
+            zerolinecolor="rgba(15, 23, 42, 0.42)",
+            zerolinewidth=1.5,
+            showline=True,
+            linecolor="rgba(148, 163, 184, 0.42)",
+            ticks="outside",
+            ticklen=5,
+            tickcolor="rgba(148, 163, 184, 0.42)",
+        ),
+    )
+    if trend_df.empty:
+        return fig
+
+    d = trend_df.copy()
+    adjusted_cph = pd.to_numeric(d["adjusted_end_to_end_caskets_per_hour"], errors="coerce")
+    recent_cph = pd.to_numeric(d["recent_end_to_end_caskets_per_hour"], errors="coerce")
+    overall_cph = pd.to_numeric(d["all_time_end_to_end_caskets_per_hour"], errors="coerce")
+    d["recent_deviation_pct"] = (adjusted_cph.div(recent_cph.where(recent_cph > 0)) - 1.0) * 100.0
+    d["overall_deviation_pct"] = (adjusted_cph.div(overall_cph.where(overall_cph > 0)) - 1.0) * 100.0
+    d["adjusted_cph"] = adjusted_cph
+    d["recent_cph"] = recent_cph
+    d["overall_cph"] = overall_cph
+    d["adjusted_minutes"] = pd.to_numeric(d["adjusted_total_minutes_per_casket"], errors="coerce")
+    d["recent_minutes"] = pd.to_numeric(d["recent_total_minutes_per_casket"], errors="coerce")
+    d["overall_minutes"] = pd.to_numeric(d["all_time_total_minutes_per_casket"], errors="coerce")
+
+    positive = d["recent_deviation_pct"].where(d["recent_deviation_pct"] >= 0)
+    negative = d["recent_deviation_pct"].where(d["recent_deviation_pct"] < 0)
+    hover_data = d[
+        [
+            "adjusted_cph",
+            "recent_cph",
+            "overall_cph",
+            "overall_deviation_pct",
+            "adjusted_minutes",
+            "recent_minutes",
+            "overall_minutes",
+            "recent_deviation_pct",
+        ]
+    ]
+    hover_template = (
+        "%{x}<br>Vs recent EWMA: %{y:.2f}%"
+        "<br>Adjusted daily pace: %{customdata[0]:.4f} caskets/hr"
+        "<br>Recent EWMA pace: %{customdata[1]:.4f} caskets/hr"
+        "<br>Vs overall average: %{customdata[3]:.2f}%"
+        "<br>Overall average: %{customdata[2]:.4f} caskets/hr"
+        "<br>Adjusted total: %{customdata[4]:.2f} min/casket"
+        "<br>Recent total: %{customdata[5]:.2f} min/casket"
+        "<br>Overall total: %{customdata[6]:.2f} min/casket<extra></extra>"
+    )
+
+    fig.add_trace(
+        go.Bar(
+            x=d["date_label"],
+            y=positive,
+            name="Better than recent",
+            marker_color="#16a34a",
+            customdata=hover_data,
+            hovertemplate=hover_template,
+        )
+    )
+    fig.add_trace(
+        go.Bar(
+            x=d["date_label"],
+            y=negative,
+            name="Slower than recent",
+            marker_color="#e11d48",
+            customdata=hover_data,
+            hovertemplate=hover_template,
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=d["date_label"],
+            y=d["overall_deviation_pct"],
+            mode="markers",
+            name="Vs overall average",
+            marker=dict(symbol="diamond", size=8, color="#64748b", line=dict(color="#334155", width=1)),
+            customdata=hover_data,
+            hovertemplate=(
+                "%{x}<br>Vs overall average: %{y:.2f}%"
+                "<br>Adjusted daily pace: %{customdata[0]:.4f} caskets/hr"
+                "<br>Overall average: %{customdata[2]:.4f} caskets/hr"
+                "<br>Vs recent EWMA: %{customdata[7]:.2f}%"
+                "<br>Recent EWMA pace: %{customdata[1]:.4f} caskets/hr<extra></extra>"
+            ),
+        )
+    )
+    fig.add_hline(y=0, line=dict(color="rgba(15, 23, 42, 0.72)", width=2.25))
+
+    y_values = pd.concat([d["recent_deviation_pct"], d["overall_deviation_pct"]], axis=0).dropna()
+    if not y_values.empty:
+        max_abs = max(abs(float(y_values.min())), abs(float(y_values.max())))
+        padded = max(max_abs * 1.18, 2.0)
+        if padded <= 6:
+            dtick = 1.0
+        elif padded <= 15:
+            dtick = 2.5
+        elif padded <= 30:
+            dtick = 5.0
+        else:
+            dtick = 10.0
+        axis_bound = math.ceil(padded / dtick) * dtick
+        fig.update_yaxes(range=[-axis_bound, axis_bound], tickmode="linear", dtick=dtick)
+
+    return fig
+
+
 def build_end_to_end_minutes_chart(trend_df: pd.DataFrame) -> go.Figure:
     fig = go.Figure()
     fig.update_layout(
@@ -3214,6 +3348,7 @@ with tab_combo:
         st.divider()
         st.subheader("Charts")
         st.plotly_chart(build_end_to_end_cph_chart(end_to_end_trend_df), width="stretch")
+        st.plotly_chart(build_end_to_end_deviation_chart(end_to_end_trend_df), width="stretch")
         if end_to_end_sum:
             pie_col1, pie_col2 = st.columns(2)
             with pie_col1:
