@@ -1582,8 +1582,10 @@ def build_end_to_end_cph_chart(trend_df: pd.DataFrame) -> go.Figure:
     )
     hover_raw_total_data = trend_df[
         [
-            "raw_acquire_caskets_per_hour",
-            "raw_complete_caskets_per_hour",
+            "adjusted_acquire_minutes_per_casket",
+            "adjusted_complete_minutes_per_casket",
+            "adjusted_acquire_same_day_share",
+            "adjusted_complete_same_day_share",
             "acq_caskets",
             "comp_caskets",
             "raw_total_same_day_weight",
@@ -1595,7 +1597,7 @@ def build_end_to_end_cph_chart(trend_df: pd.DataFrame) -> go.Figure:
             x=[None],
             y=[None],
             mode="markers",
-            name="Raw points",
+            name="Adjusted daily total",
             hoverinfo="skip",
             marker=dict(
                 size=11,
@@ -1607,9 +1609,9 @@ def build_end_to_end_cph_chart(trend_df: pd.DataFrame) -> go.Figure:
     fig.add_trace(
         go.Scatter(
             x=trend_df["date_label"],
-            y=trend_df["raw_end_to_end_caskets_per_hour"],
+            y=trend_df["adjusted_end_to_end_caskets_per_hour"],
             mode="markers",
-            name="Raw total point",
+            name="Adjusted daily total",
             showlegend=False,
             marker=dict(
                 size=raw_total_sizes,
@@ -1618,12 +1620,12 @@ def build_end_to_end_cph_chart(trend_df: pd.DataFrame) -> go.Figure:
             ),
             customdata=hover_raw_total_data,
             hovertemplate=(
-                "%{x}<br>Raw total pace: %{y:.4f} caskets/hr"
-                "<br>Raw acquisition pace: %{customdata[0]:.4f} clues/hr"
-                "<br>Raw completion pace: %{customdata[1]:.4f} caskets/hr"
-                "<br>Clues logged on this date: %{customdata[2]:.0f}"
-                "<br>Caskets logged on this date: %{customdata[3]:.0f}"
-                "<br>Date's total weight: %{customdata[4]:.0f}<extra></extra>"
+                "%{x}<br>Adjusted daily pace: %{y:.4f} caskets/hr"
+                "<br>Adjusted acquisition: %{customdata[0]:.4f} min/clue"
+                "<br>Adjusted completion: %{customdata[1]:.4f} min/casket"
+                "<br>Acquisition same-day weight: %{customdata[2]:.0%} from %{customdata[4]:.0f} clues"
+                "<br>Completion same-day weight: %{customdata[3]:.0%} from %{customdata[5]:.0f} caskets"
+                "<br>Date's total marker weight: %{customdata[6]:.0f}<extra></extra>"
             ),
         )
     )
@@ -1705,7 +1707,7 @@ def build_end_to_end_cph_chart(trend_df: pd.DataFrame) -> go.Figure:
     )
     y_values = pd.concat(
         [
-            trend_df["raw_end_to_end_caskets_per_hour"],
+            trend_df["adjusted_end_to_end_caskets_per_hour"],
             trend_df["recent_end_to_end_caskets_per_hour"],
             trend_df["raw_acquire_caskets_per_hour"],
             trend_df["recent_acquire_caskets_per_hour"],
@@ -1808,20 +1810,32 @@ def build_end_to_end_minutes_chart(trend_df: pd.DataFrame) -> go.Figure:
     fig.add_trace(
         go.Scatter(
             x=trend_df["date_label"],
-            y=trend_df["raw_total_minutes_per_casket"],
+            y=trend_df["adjusted_total_minutes_per_casket"],
             mode="markers",
-            name="Raw total point",
+            name="Adjusted daily total",
             marker=dict(
                 size=raw_total_sizes,
                 color="rgba(220, 38, 38, 0)",
                 line=dict(color="rgba(220, 38, 38, 0.40)", width=1.5),
             ),
-            customdata=trend_df[["acq_caskets", "comp_caskets", "raw_total_same_day_weight"]],
+            customdata=trend_df[
+                [
+                    "adjusted_acquire_minutes_per_casket",
+                    "adjusted_complete_minutes_per_casket",
+                    "adjusted_acquire_same_day_share",
+                    "adjusted_complete_same_day_share",
+                    "acq_caskets",
+                    "comp_caskets",
+                    "raw_total_same_day_weight",
+                ]
+            ],
             hovertemplate=(
-                "%{x}<br>Raw total: %{y:.4f} min/casket"
-                "<br>Clues logged on this date: %{customdata[0]:.0f}"
-                "<br>Caskets logged on this date: %{customdata[1]:.0f}"
-                "<br>Total same-day weight: %{customdata[2]:.0f}<extra></extra>"
+                "%{x}<br>Adjusted daily total: %{y:.4f} min/casket"
+                "<br>Adjusted acquisition: %{customdata[0]:.4f} min/clue"
+                "<br>Adjusted completion: %{customdata[1]:.4f} min/casket"
+                "<br>Acquisition same-day weight: %{customdata[2]:.0%} from %{customdata[4]:.0f} clues"
+                "<br>Completion same-day weight: %{customdata[3]:.0%} from %{customdata[5]:.0f} caskets"
+                "<br>Total marker weight: %{customdata[6]:.0f}<extra></extra>"
             ),
         )
     )
@@ -3098,10 +3112,11 @@ with tab_combo:
         else:
             st.caption("Full end-to-end summary cards and pie charts appear after at least one acquisition and one completion entry.")
         st.caption(
-            f"Raw hollow circles are same-day points: blue scales with clues acquired that day, green scales with "
-            f"caskets completed that day, and red scales with the combined same-day weight. The EWMA lines use "
+            f"Hollow circles are same-day points: blue shows raw acquisition, green shows raw completion, and red shows "
+            f"a sample-adjusted daily total. Red blends each same-day component with its own recent EWMA baseline based "
+            f"on that component's same-day count. The EWMA lines use "
             f"spans of {END_TO_END_RECENT_ACQ_EWMA_SPAN} acquisition dates and {END_TO_END_RECENT_COMP_EWMA_SPAN} "
             "completion dates, and they are causal, so older points do not change when newer data is added. If "
-            "only one side is logged on a date, the other side carries forward its last known value once it exists. "
+            "only one side is logged on a date, the other side uses its recent EWMA value once it exists. "
             "The dotted gray line is the flat overall weighted average across all logged data."
         )

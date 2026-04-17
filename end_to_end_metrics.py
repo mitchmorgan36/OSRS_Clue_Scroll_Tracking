@@ -60,6 +60,53 @@ def exp_weighted_minutes_per_casket(
     return active_minutes.reindex(seconds.index).ffill()
 
 
+def exp_weighted_count(
+    caskets: pd.Series,
+    span: int,
+) -> pd.Series:
+    qty = pd.to_numeric(caskets, errors="coerce")
+    valid = qty.notna() & (qty > 0)
+    if not valid.any():
+        return pd.Series(float("nan"), index=caskets.index)
+
+    span = max(1, int(span))
+    active_caskets = qty[valid].astype(float)
+    ewma_caskets = active_caskets.ewm(span=span, adjust=False).mean()
+    return ewma_caskets.reindex(caskets.index).ffill()
+
+
+def _sample_adjusted_component(
+    raw_minutes: pd.Series,
+    recent_minutes: pd.Series,
+    same_day_count: pd.Series,
+    prior_recent_count: pd.Series,
+    prior_recent_minutes: pd.Series,
+) -> tuple[pd.Series, pd.Series]:
+    raw = pd.to_numeric(raw_minutes, errors="coerce")
+    recent = pd.to_numeric(recent_minutes, errors="coerce")
+    qty = pd.to_numeric(same_day_count, errors="coerce").fillna(0.0)
+    baseline_qty = pd.to_numeric(prior_recent_count, errors="coerce")
+    baseline_minutes = pd.to_numeric(prior_recent_minutes, errors="coerce")
+
+    adjusted = recent.copy()
+    same_day_share = pd.Series(0.0, index=raw.index, dtype=float)
+    has_activity = raw.notna() & (qty > 0)
+    has_baseline = baseline_minutes.notna() & baseline_qty.notna() & (baseline_qty > 0)
+
+    blend = has_activity & has_baseline
+    adjusted.loc[blend] = (
+        (raw.loc[blend] * qty.loc[blend])
+        + (baseline_minutes.loc[blend] * baseline_qty.loc[blend])
+    ).div(qty.loc[blend] + baseline_qty.loc[blend])
+    same_day_share.loc[blend] = qty.loc[blend].div(qty.loc[blend] + baseline_qty.loc[blend])
+
+    raw_only = has_activity & ~has_baseline
+    adjusted.loc[raw_only] = raw.loc[raw_only]
+    same_day_share.loc[raw_only] = 1.0
+
+    return adjusted, same_day_share
+
+
 def _minutes_to_caskets_per_hour(minutes_per_casket: pd.Series) -> pd.Series:
     values = pd.to_numeric(minutes_per_casket, errors="coerce")
     return 60.0 / values.where(values > 0)
@@ -99,6 +146,8 @@ def build_end_to_end_trend_df(
         d["comp_caskets"],
         recent_comp_span,
     )
+    d["recent_acq_caskets_per_day"] = exp_weighted_count(d["acq_caskets"], recent_acq_span)
+    d["recent_comp_caskets_per_day"] = exp_weighted_count(d["comp_caskets"], recent_comp_span)
 
     d["raw_acquire_minutes_per_casket"] = (
         d["acq_seconds"].div(d["acq_caskets"].where(d["acq_caskets"] > 0)) / 60.0
@@ -111,8 +160,34 @@ def build_end_to_end_trend_df(
     d["raw_total_minutes_per_casket"] = (
         d["raw_total_acquire_component"] + d["raw_total_complete_component"]
     )
+    d["adjusted_acquire_baseline_caskets"] = d["recent_acq_caskets_per_day"].shift(1)
+    d["adjusted_complete_baseline_caskets"] = d["recent_comp_caskets_per_day"].shift(1)
+    d["adjusted_acquire_minutes_per_casket"], d["adjusted_acquire_same_day_share"] = (
+        _sample_adjusted_component(
+            d["raw_acquire_minutes_per_casket"],
+            d["recent_acquire_minutes_per_casket"],
+            d["acq_caskets"],
+            d["adjusted_acquire_baseline_caskets"],
+            d["recent_acquire_minutes_per_casket"].shift(1),
+        )
+    )
+    d["adjusted_complete_minutes_per_casket"], d["adjusted_complete_same_day_share"] = (
+        _sample_adjusted_component(
+            d["raw_complete_minutes_per_casket"],
+            d["recent_complete_minutes_per_casket"],
+            d["comp_caskets"],
+            d["adjusted_complete_baseline_caskets"],
+            d["recent_complete_minutes_per_casket"].shift(1),
+        )
+    )
+    d["adjusted_total_minutes_per_casket"] = (
+        d["adjusted_acquire_minutes_per_casket"] + d["adjusted_complete_minutes_per_casket"]
+    )
     d["recent_total_minutes_per_casket"] = (
         d["recent_acquire_minutes_per_casket"] + d["recent_complete_minutes_per_casket"]
+    )
+    d["adjusted_end_to_end_caskets_per_hour"] = _minutes_to_caskets_per_hour(
+        d["adjusted_total_minutes_per_casket"]
     )
     d["raw_end_to_end_caskets_per_hour"] = _minutes_to_caskets_per_hour(
         d["raw_total_minutes_per_casket"]

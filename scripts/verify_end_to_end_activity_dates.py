@@ -57,6 +57,10 @@ def main() -> None:
     assert_nan(first["raw_complete_minutes_per_casket"], "first raw completion point should be blank")
     assert_nan(first["recent_total_minutes_per_casket"], "first total point should be blank")
     assert_nan(first["raw_total_minutes_per_casket"], "first raw total point should be blank")
+    assert_close(first["adjusted_acquire_minutes_per_casket"], 5.0, "first adjusted acquisition point")
+    assert_nan(first["adjusted_complete_minutes_per_casket"], "first adjusted completion point should be blank")
+    assert_nan(first["adjusted_total_minutes_per_casket"], "first adjusted total point should be blank")
+    assert_close(first["adjusted_acquire_same_day_share"], 1.0, "first adjusted acquisition same-day share")
     assert_nan(first["recent_end_to_end_caskets_per_hour"], "first cph point should be blank")
     assert_close(first["all_time_total_minutes_per_casket"], 8.833333333333334, "flat overall total benchmark")
     assert_close(
@@ -73,6 +77,9 @@ def main() -> None:
     assert_nan(second["recent_complete_minutes_per_casket"], "second completion point should still be blank")
     assert_nan(second["recent_total_minutes_per_casket"], "second total point should still be blank")
     assert_nan(second["raw_total_minutes_per_casket"], "second raw total point should still be blank")
+    assert_close(second["adjusted_acquire_minutes_per_casket"], 3.0, "second adjusted acquisition point")
+    assert_close(second["adjusted_acquire_same_day_share"], 0.6, "second adjusted acquisition same-day share")
+    assert_nan(second["adjusted_total_minutes_per_casket"], "second adjusted total point should still be blank")
 
     third = trend_df.iloc[2]
     assert_close(third["recent_acquire_minutes_per_casket"], 3.0, "acquisition should carry forward")
@@ -84,6 +91,13 @@ def main() -> None:
     assert_close(third["recent_total_minutes_per_casket"], 7.0, "first total point")
     assert_close(third["raw_total_minutes_per_casket"], 5.666666666666667, "first raw total point")
     assert_close(third["raw_total_same_day_weight"], 2.0, "first raw total same-day weight")
+    assert_close(third["adjusted_total_minutes_per_casket"], 7.0, "first adjusted total point")
+    assert_close(third["adjusted_complete_same_day_share"], 1.0, "first adjusted completion same-day share")
+    assert_close(
+        third["adjusted_end_to_end_caskets_per_hour"],
+        60.0 / 7.0,
+        "first adjusted cph point",
+    )
     assert_close(third["recent_end_to_end_caskets_per_hour"], 60.0 / 7.0, "first cph point")
     if bool(third["has_acq_activity"]) or not bool(third["has_comp_activity"]):
         raise AssertionError("third row activity flags are incorrect")
@@ -100,6 +114,9 @@ def main() -> None:
     assert_close(fourth["raw_complete_minutes_per_casket"], 5.0, "second raw completion point")
     assert_close(fourth["raw_total_minutes_per_casket"], 6.666666666666667, "second raw total point")
     assert_close(fourth["raw_total_same_day_weight"], 3.0, "second raw total same-day weight")
+    assert_close(fourth["adjusted_complete_minutes_per_casket"], 4.6, "second adjusted completion point")
+    assert_close(fourth["adjusted_complete_same_day_share"], 0.6, "second adjusted completion same-day share")
+    assert_close(fourth["adjusted_total_minutes_per_casket"], 7.6, "second adjusted total point")
 
     fifth = trend_df.iloc[4]
     assert_close(fifth["recent_acquire_minutes_per_casket"], 5.0, "both-sides date acquisition update")
@@ -125,6 +142,19 @@ def main() -> None:
     )
     assert_close(fifth["raw_total_minutes_per_casket"], 15.0, "both-sides raw total update")
     assert_close(fifth["raw_total_same_day_weight"], 2.0, "both-sides raw total same-day weight")
+    assert_close(fifth["adjusted_acquire_minutes_per_casket"], 5.0, "both-sides adjusted acquisition update")
+    assert_close(
+        fifth["adjusted_complete_minutes_per_casket"],
+        4.818181818181818,
+        "both-sides adjusted completion update",
+    )
+    assert_close(
+        fifth["adjusted_total_minutes_per_casket"],
+        9.818181818181818,
+        "both-sides adjusted total update",
+    )
+    assert_close(fifth["adjusted_acquire_same_day_share"], 1.0 / 3.5, "both-sides acquisition same-day share")
+    assert_close(fifth["adjusted_complete_same_day_share"], 1.0 / 3.6666666666666665, "both-sides completion same-day share")
     assert_close(
         fifth["recent_end_to_end_caskets_per_hour"],
         60.0 / 9.857142857142858,
@@ -148,6 +178,10 @@ def main() -> None:
         "recent_complete_minutes_per_casket",
         "recent_total_minutes_per_casket",
         "recent_end_to_end_caskets_per_hour",
+        "adjusted_acquire_minutes_per_casket",
+        "adjusted_complete_minutes_per_casket",
+        "adjusted_total_minutes_per_casket",
+        "adjusted_end_to_end_caskets_per_hour",
     ]
     for col in compare_cols:
         full_prefix = trend_df.loc[: len(prefix_trend_df) - 1, col].reset_index(drop=True)
