@@ -1900,18 +1900,13 @@ def build_end_to_end_deviation_chart(trend_df: pd.DataFrame) -> go.Figure:
             automargin=True,
             categoryorder="array",
             categoryarray=trend_df["date_label"].tolist() if "date_label" in trend_df else [],
-            showline=True,
-            linecolor="rgba(148, 163, 184, 0.42)",
-            ticks="outside",
-            ticklen=5,
-            tickcolor="rgba(148, 163, 184, 0.42)",
+            showline=False,
+            ticks="",
         ),
         yaxis=dict(
             title="Deviation from benchmark",
             ticksuffix="%",
-            zeroline=True,
-            zerolinecolor="rgba(15, 23, 42, 0.42)",
-            zerolinewidth=1.5,
+            zeroline=False,
             showline=True,
             linecolor="rgba(148, 163, 184, 0.42)",
             ticks="outside",
@@ -1997,7 +1992,28 @@ def build_end_to_end_deviation_chart(trend_df: pd.DataFrame) -> go.Figure:
             ),
         )
     )
-    fig.add_hline(y=0, line=dict(color="rgba(15, 23, 42, 0.72)", width=2.25))
+    fig.add_shape(
+        type="line",
+        xref="paper",
+        x0=0,
+        x1=1,
+        yref="y",
+        y0=0,
+        y1=0,
+        layer="above",
+        line=dict(color="rgba(15, 23, 42, 0.86)", width=7),
+    )
+    fig.add_shape(
+        type="line",
+        xref="paper",
+        x0=0,
+        x1=1,
+        yref="y",
+        y0=0,
+        y1=0,
+        layer="above",
+        line=dict(color="#ffffff", width=3),
+    )
 
     y_values = pd.concat([d["recent_deviation_pct"], d["overall_deviation_pct"]], axis=0).dropna()
     if not y_values.empty:
