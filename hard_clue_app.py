@@ -1096,9 +1096,6 @@ def make_chart_legend_below(y: float | None = None, chart_height: int | None = N
         xanchor="center",
         x=0.5,
         groupclick="togglegroup",
-        itemwidth=30,
-        itemsizing="constant",
-        indentation=0,
     )
 
 
