@@ -1926,9 +1926,6 @@ def build_end_to_end_deviation_chart(trend_df: pd.DataFrame) -> go.Figure:
     d["adjusted_cph"] = adjusted_cph
     d["recent_cph"] = recent_cph
     d["overall_cph"] = overall_cph
-    d["adjusted_minutes"] = pd.to_numeric(d["adjusted_total_minutes_per_casket"], errors="coerce")
-    d["recent_minutes"] = pd.to_numeric(d["recent_total_minutes_per_casket"], errors="coerce")
-    d["overall_minutes"] = pd.to_numeric(d["all_time_total_minutes_per_casket"], errors="coerce")
     d["same_day_weight"] = pd.to_numeric(d["raw_total_same_day_weight"], errors="coerce").fillna(0.0)
     d["acq_caskets"] = pd.to_numeric(d["acq_caskets"], errors="coerce").fillna(0.0)
     d["comp_caskets"] = pd.to_numeric(d["comp_caskets"], errors="coerce").fillna(0.0)
@@ -1986,10 +1983,6 @@ def build_end_to_end_deviation_chart(trend_df: pd.DataFrame) -> go.Figure:
             "recent_cph",
             "overall_cph",
             "overall_deviation_pct",
-            "adjusted_minutes",
-            "recent_minutes",
-            "overall_minutes",
-            "recent_deviation_pct",
             "same_day_confidence",
             "acq_caskets",
             "comp_caskets",
@@ -2002,19 +1995,16 @@ def build_end_to_end_deviation_chart(trend_df: pd.DataFrame) -> go.Figure:
     ]
     hover_template = (
         "%{x}<br>Vs recent EWMA: %{y:.2f}%"
-        "<br>Adjusted daily pace: %{customdata[0]:.4f} caskets/hr"
-        "<br>Recent EWMA pace: %{customdata[1]:.4f} caskets/hr"
+        "<br>Adjusted total: %{customdata[0]:.4f} caskets/hr"
+        "<br>Recent total: %{customdata[1]:.4f} caskets/hr"
         "<br>Vs overall average: %{customdata[3]:.2f}%"
-        "<br>Overall average: %{customdata[2]:.4f} caskets/hr"
-        "<br>Adjusted total: %{customdata[4]:.2f} min/casket"
-        "<br>Recent total: %{customdata[5]:.2f} min/casket"
-        "<br>Overall total: %{customdata[6]:.2f} min/casket"
-        "<br>Daily confidence: %{customdata[8]:.0%}"
-        "<br>Acquired clues: %{customdata[9]:.0f}"
-        "<br>Completed caskets: %{customdata[10]:.0f}"
-        "<br>Acquisition share: %{customdata[11]:.0%} same-day, %{customdata[13]:.0%} of time"
-        "<br>Completion share: %{customdata[12]:.0%} same-day, %{customdata[14]:.0%} of time"
-        "<br>Logged activity count: %{customdata[15]:.0f}<extra></extra>"
+        "<br>Overall total: %{customdata[2]:.4f} caskets/hr"
+        "<br>Daily confidence: %{customdata[4]:.0%}"
+        "<br>Acquired clues: %{customdata[5]:.0f}"
+        "<br>Completed caskets: %{customdata[6]:.0f}"
+        "<br>Acquisition share: %{customdata[7]:.0%} same-day, %{customdata[9]:.0%} of time"
+        "<br>Completion share: %{customdata[8]:.0%} same-day, %{customdata[10]:.0%} of time"
+        "<br>Logged activity count: %{customdata[11]:.0f}<extra></extra>"
     )
 
     fig.add_trace(
