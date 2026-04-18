@@ -1089,7 +1089,17 @@ def ensure_adjusted_end_to_end_columns(trend_df: pd.DataFrame) -> pd.DataFrame:
 def make_chart_legend_below(y: float | None = None, chart_height: int | None = None) -> dict:
     if y is None:
         y = PRIMARY_LEGEND_Y
-    return dict(orientation="h", yanchor="top", y=y, xanchor="center", x=0.5)
+    return dict(
+        orientation="h",
+        yanchor="top",
+        y=y,
+        xanchor="center",
+        x=0.5,
+        groupclick="togglegroup",
+        itemwidth=30,
+        itemsizing="constant",
+        indentation=0,
+    )
 
 
 def make_line_layout(
@@ -1708,6 +1718,7 @@ def build_end_to_end_cph_chart(trend_df: pd.DataFrame) -> go.Figure:
             y=[None],
             mode="markers",
             name="Adjusted daily total",
+            legendgroup="raw_points",
             hoverinfo="skip",
             marker=dict(
                 size=11,
@@ -1723,6 +1734,7 @@ def build_end_to_end_cph_chart(trend_df: pd.DataFrame) -> go.Figure:
             mode="markers",
             name="Adjusted daily total",
             showlegend=False,
+            legendgroup="raw_points",
             marker=dict(
                 size=raw_total_sizes,
                 color="rgba(220, 38, 38, 0)",
@@ -1762,6 +1774,7 @@ def build_end_to_end_cph_chart(trend_df: pd.DataFrame) -> go.Figure:
             mode="markers",
             name="Raw acquisition point",
             showlegend=False,
+            legendgroup="raw_points",
             marker=dict(
                 size=raw_acq_sizes,
                 color="rgba(29, 78, 216, 0)",
@@ -1792,6 +1805,7 @@ def build_end_to_end_cph_chart(trend_df: pd.DataFrame) -> go.Figure:
             mode="markers",
             name="Raw completion point",
             showlegend=False,
+            legendgroup="raw_points",
             marker=dict(
                 size=raw_comp_sizes,
                 color="rgba(15, 118, 110, 0)",
@@ -1815,18 +1829,6 @@ def build_end_to_end_cph_chart(trend_df: pd.DataFrame) -> go.Figure:
             hovertemplate="%{x}<br>Recent completion pace: %{y:.2f} caskets/hr<extra></extra>",
         )
     )
-    y_values = pd.concat(
-        [
-            trend_df["adjusted_end_to_end_caskets_per_hour"],
-            trend_df["recent_end_to_end_caskets_per_hour"],
-            trend_df["raw_acquire_caskets_per_hour"],
-            trend_df["recent_acquire_caskets_per_hour"],
-            trend_df["raw_complete_caskets_per_hour"],
-            trend_df["recent_complete_caskets_per_hour"],
-            trend_df["all_time_end_to_end_caskets_per_hour"],
-        ],
-        axis=0,
-    ).dropna()
     yaxis_config = dict(
         title="Caskets per hour",
         automargin=True,
@@ -1836,22 +1838,6 @@ def build_end_to_end_cph_chart(trend_df: pd.DataFrame) -> go.Figure:
         ticklen=5,
         tickcolor="rgba(148, 163, 184, 0.42)",
     )
-    if not y_values.empty:
-        y_min = float(y_values.min())
-        y_max = float(y_values.max())
-        span = max(y_max - y_min, 0.01)
-        pad = max(span * 0.06, 0.08)
-        if span <= 1.5:
-            dtick = 0.25
-        elif span <= 3.0:
-            dtick = 0.5
-        else:
-            dtick = 1.0
-        y_lower = max(0.0, math.floor((y_min - pad) / dtick) * dtick)
-        y_upper = math.ceil((y_max + pad) / dtick) * dtick
-        if y_upper <= y_lower:
-            y_upper = y_lower + dtick
-        yaxis_config.update(range=[y_lower, y_upper], tickmode="linear", dtick=dtick)
     fig.add_trace(
         go.Scatter(
             x=trend_df["date_label"],
@@ -2016,6 +2002,7 @@ def build_end_to_end_deviation_chart(trend_df: pd.DataFrame) -> go.Figure:
             x=[None],
             y=[None],
             name="Better than recent",
+            legendgroup="better_than_recent",
             marker=dict(color="#16a34a"),
             hoverinfo="skip",
         )
@@ -2025,6 +2012,7 @@ def build_end_to_end_deviation_chart(trend_df: pd.DataFrame) -> go.Figure:
             x=[None],
             y=[None],
             name="Slower than recent",
+            legendgroup="slower_than_recent",
             marker=dict(color="#e11d48"),
             hoverinfo="skip",
         )
@@ -2035,6 +2023,7 @@ def build_end_to_end_deviation_chart(trend_df: pd.DataFrame) -> go.Figure:
             y=positive,
             name="Better than recent",
             showlegend=False,
+            legendgroup="better_than_recent",
             marker=dict(color=positive_colors),
             text=positive_labels,
             textposition="outside",
@@ -2051,6 +2040,7 @@ def build_end_to_end_deviation_chart(trend_df: pd.DataFrame) -> go.Figure:
             y=negative,
             name="Slower than recent",
             showlegend=False,
+            legendgroup="slower_than_recent",
             marker=dict(color=negative_colors),
             text=negative_labels,
             textposition="outside",
@@ -2072,21 +2062,6 @@ def build_end_to_end_deviation_chart(trend_df: pd.DataFrame) -> go.Figure:
         layer="above",
         line=dict(color="#ffffff", width=0.75),
     )
-
-    y_values = d["recent_deviation_pct"].dropna()
-    if not y_values.empty:
-        max_abs = max(abs(float(y_values.min())), abs(float(y_values.max())))
-        padded = max(max_abs * 1.28, 2.0)
-        if padded <= 6:
-            dtick = 1.0
-        elif padded <= 15:
-            dtick = 2.5
-        elif padded <= 30:
-            dtick = 5.0
-        else:
-            dtick = 10.0
-        axis_bound = math.ceil(padded / dtick) * dtick
-        fig.update_yaxes(range=[-axis_bound, axis_bound], tickmode="linear", dtick=dtick)
 
     return fig
 
