@@ -13,7 +13,7 @@ import streamlit as st
 
 from end_to_end_metrics import build_end_to_end_trend_df
 import google_sheets_backend as gsb
-from weighted_metrics import rolling_weighted_ratio, weighted_ratio
+from weighted_metrics import ewma_mean, ewma_weighted_ratio, weighted_ratio
 
 # ----------------------------
 # Config
@@ -964,10 +964,6 @@ def append_row(sheet_name: str, columns: tuple[str, ...], row: Dict[str, Any]) -
 
 
 
-def rolling_mean(series: pd.Series, window: int) -> pd.Series:
-    return series.rolling(window=window, min_periods=1).mean()
-
-
 def coerce_numeric(df: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
     out = df.copy()
     for col in cols:
@@ -1227,17 +1223,21 @@ def prepare_acq_metrics(df: pd.DataFrame) -> pd.DataFrame:
     )
     d["expected_net_gp_trip_acquisition"] = d["expected_combined_acquisition_gp_income"] - d["gp_cost"]
 
-    d["rolling_10_trip_avg_minutes_per_clue"] = rolling_weighted_ratio(
+    d["recent_ewma_minutes_per_clue"] = ewma_weighted_ratio(
         d["duration_seconds"] / 60.0,
         d["clues"],
-        10,
+        END_TO_END_RECENT_ACQ_EWMA_SPAN,
     )
-    d["rolling_10_trip_avg_clues_per_hour"] = rolling_weighted_ratio(
+    d["recent_ewma_clues_per_hour"] = ewma_weighted_ratio(
         d["clues"],
         d["duration_seconds"] / 3600.0,
-        10,
+        END_TO_END_RECENT_ACQ_EWMA_SPAN,
     )
-    d["rolling_10_trip_avg_gp_cost_per_clue"] = rolling_weighted_ratio(d["gp_cost"], d["clues"], 10)
+    d["recent_ewma_gp_cost_per_clue"] = ewma_weighted_ratio(
+        d["gp_cost"],
+        d["clues"],
+        END_TO_END_RECENT_ACQ_EWMA_SPAN,
+    )
     d["duration"] = d["duration_seconds"].apply(seconds_to_hhmm)
     d["log_date"] = d["log_date"].dt.date
     return d
@@ -1264,15 +1264,15 @@ def prepare_comp_metrics(df: pd.DataFrame) -> pd.DataFrame:
 
     d["minutes_per_casket"] = (d["duration_seconds"] / 60.0).div(completed)
     d["caskets_per_hour"] = d["clues_per_hour"].where(d["clues_per_hour"].notna(), d["clues_completed"].div(hours))
-    d["rolling_10_session_avg_minutes_per_casket"] = rolling_weighted_ratio(
+    d["recent_ewma_minutes_per_casket"] = ewma_weighted_ratio(
         d["duration_seconds"] / 60.0,
         d["clues_completed"],
-        10,
+        END_TO_END_RECENT_COMP_EWMA_SPAN,
     )
-    d["rolling_10_session_avg_caskets_per_hour"] = rolling_weighted_ratio(
+    d["recent_ewma_caskets_per_hour"] = ewma_weighted_ratio(
         d["clues_completed"],
         d["duration_seconds"] / 3600.0,
-        10,
+        END_TO_END_RECENT_COMP_EWMA_SPAN,
     )
     d["duration"] = d["duration_seconds"].apply(seconds_to_hhmm)
     d["log_date"] = d["log_date"].dt.date
@@ -1378,11 +1378,14 @@ def build_acq_clues_per_hour_chart(df: pd.DataFrame) -> go.Figure:
     fig.add_trace(
         go.Scatter(
             x=d["trip_id"],
-            y=d["rolling_10_trip_avg_clues_per_hour"],
+            y=d["recent_ewma_clues_per_hour"],
             mode="lines",
-            name="Rolling 10-trip avg",
+            name=f"Recent EWMA (span {END_TO_END_RECENT_ACQ_EWMA_SPAN} trips)",
             line=dict(color="#60a5fa", width=2.5, dash="dash"),
-            hovertemplate="Rolling avg: %{y:.2f} clues/hr<extra></extra>",
+            hovertemplate=(
+                f"Trip %{{x}}<br>Recent EWMA "
+                f"(span {END_TO_END_RECENT_ACQ_EWMA_SPAN} trips): %{{y:.2f}} clues/hr<extra></extra>"
+            ),
         )
     )
 
@@ -1434,11 +1437,14 @@ def build_acq_profitability_chart(df: pd.DataFrame) -> go.Figure:
     fig.add_trace(
         go.Scatter(
             x=d["trip_id"],
-            y=d["rolling_10_trip_avg_gp_cost_per_clue"],
+            y=d["recent_ewma_gp_cost_per_clue"],
             mode="lines",
-            name="Rolling 10-trip avg",
+            name=f"Recent EWMA (span {END_TO_END_RECENT_ACQ_EWMA_SPAN} trips)",
             line=dict(color="#f59e0b", width=2.5, dash="dash"),
-            hovertemplate="Trip %{x}<br>Rolling GP cost/clue: %{y:,.0f}<extra></extra>",
+            hovertemplate=(
+                f"Trip %{{x}}<br>Recent EWMA "
+                f"(span {END_TO_END_RECENT_ACQ_EWMA_SPAN} trips): %{{y:,.0f}} GP/clue<extra></extra>"
+            ),
         )
     )
 
@@ -1485,11 +1491,14 @@ def build_completion_minutes_per_casket_chart(df: pd.DataFrame) -> go.Figure:
     fig.add_trace(
         go.Scatter(
             x=d["session_id"],
-            y=d["rolling_10_session_avg_minutes_per_casket"],
+            y=d["recent_ewma_minutes_per_casket"],
             mode="lines",
-            name="Rolling 10-session avg",
+            name=f"Recent EWMA (span {END_TO_END_RECENT_COMP_EWMA_SPAN} sessions)",
             line=dict(color="#5eead4", width=2.5, dash="dash"),
-            hovertemplate="Rolling avg: %{y:.2f} min/casket<extra></extra>",
+            hovertemplate=(
+                f"Session %{{x}}<br>Recent EWMA "
+                f"(span {END_TO_END_RECENT_COMP_EWMA_SPAN} sessions): %{{y:.2f}} min/casket<extra></extra>"
+            ),
         )
     )
 
@@ -1545,11 +1554,14 @@ def build_completion_caskets_per_hour_chart(df: pd.DataFrame) -> go.Figure:
     fig.add_trace(
         go.Scatter(
             x=d["session_id"],
-            y=d["rolling_10_session_avg_caskets_per_hour"],
+            y=d["recent_ewma_caskets_per_hour"],
             mode="lines",
-            name="Rolling 10-session avg",
+            name=f"Recent EWMA (span {END_TO_END_RECENT_COMP_EWMA_SPAN} sessions)",
             line=dict(color="#6ee7b7", width=2.5, dash="dash"),
-            hovertemplate="Rolling avg: %{y:.2f} caskets/hr<extra></extra>",
+            hovertemplate=(
+                f"Session %{{x}}<br>Recent EWMA "
+                f"(span {END_TO_END_RECENT_COMP_EWMA_SPAN} sessions): %{{y:.2f}} caskets/hr<extra></extra>"
+            ),
         )
     )
 
@@ -1582,9 +1594,9 @@ def build_completion_caskets_completed_chart(df: pd.DataFrame) -> go.Figure:
     if d.empty:
         return fig
 
-    d["rolling_10_session_avg_caskets_completed"] = rolling_mean(
+    d["recent_ewma_caskets_completed"] = ewma_mean(
         pd.to_numeric(d["clues_completed"], errors="coerce"),
-        10,
+        END_TO_END_RECENT_COMP_EWMA_SPAN,
     )
 
     fig.add_trace(
@@ -1605,11 +1617,14 @@ def build_completion_caskets_completed_chart(df: pd.DataFrame) -> go.Figure:
     fig.add_trace(
         go.Scatter(
             x=d["session_id"],
-            y=d["rolling_10_session_avg_caskets_completed"],
+            y=d["recent_ewma_caskets_completed"],
             mode="lines",
-            name="Rolling 10-session avg",
+            name=f"Recent EWMA (span {END_TO_END_RECENT_COMP_EWMA_SPAN} sessions)",
             line=dict(color="#6ee7b7", width=2.5, dash="dash"),
-            hovertemplate="Rolling avg: %{y:.2f} caskets/session<extra></extra>",
+            hovertemplate=(
+                f"Session %{{x}}<br>Recent EWMA "
+                f"(span {END_TO_END_RECENT_COMP_EWMA_SPAN} sessions): %{{y:.2f}} caskets/session<extra></extra>"
+            ),
         )
     )
 
@@ -3172,9 +3187,9 @@ with tab_acq:
         acq_net_gp_per_clue = acq_sum.get("net_gp_per_clue_acquired") if acq_sum else float("nan")
         total = int(acq_sum["total_clues"])
         remaining = int(acq_goal_remaining)
-        rolling = acq_metrics_df["rolling_10_trip_avg_minutes_per_clue"].dropna()
-        rolling_latest = float(rolling.iloc[-1]) if not rolling.empty else 0.0
-        rolling_best = float(rolling.min()) if not rolling.empty else 0.0
+        recent = acq_metrics_df["recent_ewma_minutes_per_clue"].dropna()
+        recent_latest = float(recent.iloc[-1]) if not recent.empty else 0.0
+        recent_best = float(recent.min()) if not recent.empty else 0.0
         median_minutes_per_clue = float(acq_metrics_df["minutes_per_clue"].dropna().median()) if acq_metrics_df["minutes_per_clue"].notna().any() else 0.0
 
         k1, k2, k3, k4, k5, k6 = st.columns(6)
@@ -3189,9 +3204,9 @@ with tab_acq:
 
         t1, t2, t3, t4, t5, t6 = st.columns(6)
         t1.metric("Avg trip length", seconds_to_metric_duration(acq_sum["avg_time_trip_s"]))
-        t2.metric("Rolling 10-trip avg time / clue", minutes_to_metric_duration(rolling_latest))
+        t2.metric("Recent EWMA time / clue", minutes_to_metric_duration(recent_latest))
         t3.metric("Median time / clue", minutes_to_metric_duration(median_minutes_per_clue))
-        t4.metric("Best rolling 10-trip time / clue", minutes_to_metric_duration(rolling_best))
+        t4.metric("Best recent EWMA time / clue", minutes_to_metric_duration(recent_best))
         t5.metric("Time remaining (acquisition)", fmt_hours_minutes(acq_goal_time_remaining_s))
         t6.metric("Remaining caskets", remaining)
 
@@ -3274,9 +3289,9 @@ with tab_comp:
     else:
         total_completed = int(comp_sum["total_completed"])
         remaining = int(comp_goal_remaining)
-        rolling = comp_metrics_df["rolling_10_session_avg_minutes_per_casket"].dropna()
-        rolling_latest = float(rolling.iloc[-1]) if not rolling.empty else 0.0
-        rolling_best = float(rolling.min()) if not rolling.empty else 0.0
+        recent = comp_metrics_df["recent_ewma_minutes_per_casket"].dropna()
+        recent_latest = float(recent.iloc[-1]) if not recent.empty else 0.0
+        recent_best = float(recent.min()) if not recent.empty else 0.0
         median_minutes_per_casket = float(comp_metrics_df["minutes_per_casket"].dropna().median()) if comp_metrics_df["minutes_per_casket"].notna().any() else 0.0
         fastest_minutes_per_casket = float(comp_metrics_df["minutes_per_casket"].dropna().min()) if comp_metrics_df["minutes_per_casket"].notna().any() else 0.0
         slowest_minutes_per_casket = float(comp_metrics_df["minutes_per_casket"].dropna().max()) if comp_metrics_df["minutes_per_casket"].notna().any() else 0.0
@@ -3287,13 +3302,13 @@ with tab_comp:
         k3.metric("Avg time / casket", seconds_to_metric_duration(comp_sum["avg_time_casket_s"]))
         render_accent_metric(k4, "Caskets / hour", f"{comp_sum['caskets_per_hour']:.2f}", "metric_comp_cph")
         k5.metric("Median time / casket", minutes_to_metric_duration(median_minutes_per_casket))
-        k6.metric("Rolling 10-session avg time / casket", minutes_to_metric_duration(rolling_latest))
+        k6.metric("Recent EWMA time / casket", minutes_to_metric_duration(recent_latest))
 
         st.divider()
 
         t1, t2, t3, t4, t5, t6 = st.columns(6)
         t1.metric("Avg session length", seconds_to_metric_duration(comp_sum["avg_time_session_s"]))
-        t2.metric("Best rolling 10-session time / casket", minutes_to_metric_duration(rolling_best))
+        t2.metric("Best recent EWMA time / casket", minutes_to_metric_duration(recent_best))
         t3.metric("Fastest session time / casket", minutes_to_metric_duration(fastest_minutes_per_casket))
         t4.metric("Slowest session time / casket", minutes_to_metric_duration(slowest_minutes_per_casket))
         t5.metric("Time remaining (completion)", fmt_hours_minutes(comp_goal_time_remaining_s))

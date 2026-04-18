@@ -6,7 +6,7 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from weighted_metrics import rolling_weighted_ratio, weighted_ratio
+from weighted_metrics import ewma_mean, ewma_weighted_ratio, rolling_weighted_ratio, weighted_ratio
 
 
 def assert_close(actual: float, expected: float, label: str) -> None:
@@ -51,6 +51,43 @@ def main() -> None:
         6 / ((fast_seconds + slow_seconds) / 3600.0),
         "rolling caskets per hour",
     )
+
+    alpha = 2 / 3
+    expected_ewma_minutes = ((fast_seconds / 60.0) * (1 - alpha) + (slow_seconds / 60.0) * alpha) / (
+        5 * (1 - alpha) + 1 * alpha
+    )
+    ewma_minutes = ewma_weighted_ratio(df["duration_seconds"] / 60.0, df["clues"], 2)
+    assert_close(ewma_minutes.iloc[0], 10.0, "first EWMA minutes per clue")
+    assert_close(ewma_minutes.iloc[1], expected_ewma_minutes, "second EWMA minutes per clue")
+
+    extended_df = pd.concat(
+        [
+            df,
+            pd.DataFrame(
+                {
+                    "duration_seconds": [2 * 20 * 60],
+                    "clues": [2],
+                    "gp_cost": [1000],
+                    "clues_completed": [2],
+                }
+            ),
+        ],
+        ignore_index=True,
+    )
+    extended_ewma_minutes = ewma_weighted_ratio(
+        extended_df["duration_seconds"] / 60.0,
+        extended_df["clues"],
+        2,
+    )
+    assert_close(
+        extended_ewma_minutes.iloc[1],
+        ewma_minutes.iloc[1],
+        "EWMA should be causal when future rows are added",
+    )
+
+    ewma_counts = ewma_mean(pd.Series([5, 1, 2]), 2)
+    assert_close(ewma_counts.iloc[0], 5.0, "first EWMA count")
+    assert_close(ewma_counts.iloc[1], 5 * (1 - alpha) + 1 * alpha, "second EWMA count")
 
 
 if __name__ == "__main__":
