@@ -1909,7 +1909,6 @@ def build_end_to_end_deviation_chart(trend_df: pd.DataFrame) -> go.Figure:
     d["adjusted_cph"] = adjusted_cph
     d["recent_cph"] = recent_cph
     d["overall_cph"] = overall_cph
-    d["same_day_weight"] = pd.to_numeric(d["raw_total_same_day_weight"], errors="coerce").fillna(0.0)
     d["acq_caskets"] = pd.to_numeric(d["acq_caskets"], errors="coerce").fillna(0.0)
     d["comp_caskets"] = pd.to_numeric(d["comp_caskets"], errors="coerce").fillna(0.0)
     d["acq_same_day_share"] = (
@@ -1974,24 +1973,17 @@ def build_end_to_end_deviation_chart(trend_df: pd.DataFrame) -> go.Figure:
             "same_day_confidence",
             "acq_caskets",
             "comp_caskets",
-            "acq_same_day_share",
-            "comp_same_day_share",
-            "acq_time_share",
-            "comp_time_share",
-            "same_day_weight",
         ]
     ]
     hover_template = (
-        "%{x}<br>Vs recent EWMA: %{y:.2f}%"
+        "%{x}<br>Vs recent pace: %{y:.2f}%"
         "<br>Adjusted pace: %{customdata[0]:.4f} caskets/hr"
-        "<br>Recent EWMA: %{customdata[1]:.4f} caskets/hr"
+        "<br>Recent pace: %{customdata[1]:.4f} caskets/hr"
         "<br>Vs overall average: %{customdata[3]:.2f}%"
         "<br>Overall average: %{customdata[2]:.4f} caskets/hr"
         "<br>Daily confidence: %{customdata[4]:.0%}"
-        "<br>Acquisition confidence: %{customdata[7]:.0%} sample weight x %{customdata[9]:.0%} time share"
-        "<br>Completion confidence: %{customdata[8]:.0%} sample weight x %{customdata[10]:.0%} time share"
         "<br>Logged: %{customdata[5]:.0f} acquired, %{customdata[6]:.0f} completed"
-        "<br>Raw activity count: %{customdata[11]:.0f}<extra></extra>"
+        "<extra></extra>"
     )
 
     fig.add_trace(
