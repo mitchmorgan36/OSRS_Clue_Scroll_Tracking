@@ -1932,13 +1932,49 @@ def build_end_to_end_deviation_chart(trend_df: pd.DataFrame) -> go.Figure:
     d["same_day_weight"] = pd.to_numeric(d["raw_total_same_day_weight"], errors="coerce").fillna(0.0)
     d["acq_caskets"] = pd.to_numeric(d["acq_caskets"], errors="coerce").fillna(0.0)
     d["comp_caskets"] = pd.to_numeric(d["comp_caskets"], errors="coerce").fillna(0.0)
+    d["acq_same_day_share"] = (
+        pd.to_numeric(d["adjusted_acquire_same_day_share"], errors="coerce").fillna(0.0).clip(0.0, 1.0)
+    )
+    d["comp_same_day_share"] = (
+        pd.to_numeric(d["adjusted_complete_same_day_share"], errors="coerce").fillna(0.0).clip(0.0, 1.0)
+    )
 
-    max_weight = float(d["same_day_weight"].max())
-    if max_weight > 0:
-        weight_ratio = d["same_day_weight"].clip(lower=0.0).div(max_weight)
-        weight_alpha = (0.08 + 0.92 * weight_ratio.pow(1.45)).clip(0.08, 1.0)
+    recent_acq_minutes = pd.to_numeric(d["recent_acquire_minutes_per_casket"], errors="coerce")
+    recent_comp_minutes = pd.to_numeric(d["recent_complete_minutes_per_casket"], errors="coerce")
+    recent_component_total = recent_acq_minutes + recent_comp_minutes
+    d["acq_time_share"] = recent_acq_minutes.div(recent_component_total.where(recent_component_total > 0))
+    d["comp_time_share"] = recent_comp_minutes.div(recent_component_total.where(recent_component_total > 0))
+
+    adjusted_acq_minutes = pd.to_numeric(d["adjusted_acquire_minutes_per_casket"], errors="coerce")
+    adjusted_comp_minutes = pd.to_numeric(d["adjusted_complete_minutes_per_casket"], errors="coerce")
+    adjusted_component_total = adjusted_acq_minutes + adjusted_comp_minutes
+    d["acq_time_share"] = d["acq_time_share"].where(
+        d["acq_time_share"].notna(),
+        adjusted_acq_minutes.div(adjusted_component_total.where(adjusted_component_total > 0)),
+    )
+    d["comp_time_share"] = d["comp_time_share"].where(
+        d["comp_time_share"].notna(),
+        adjusted_comp_minutes.div(adjusted_component_total.where(adjusted_component_total > 0)),
+    )
+    d["acq_time_share"] = d["acq_time_share"].fillna(0.0).clip(0.0, 1.0)
+    d["comp_time_share"] = d["comp_time_share"].fillna(0.0).clip(0.0, 1.0)
+    d["same_day_confidence"] = (
+        (d["acq_same_day_share"] * d["acq_time_share"])
+        + (d["comp_same_day_share"] * d["comp_time_share"])
+    ).fillna(0.0).clip(0.0, 1.0)
+    visible_confidence = d["same_day_confidence"].where(d["recent_deviation_pct"].notna()).dropna()
+    min_alpha = 0.18
+    if visible_confidence.empty:
+        weight_alpha = pd.Series(min_alpha, index=d.index, dtype=float)
     else:
-        weight_alpha = pd.Series(0.08, index=d.index, dtype=float)
+        min_confidence = float(visible_confidence.min())
+        max_confidence = float(visible_confidence.max())
+        if max_confidence > min_confidence:
+            confidence_ratio = d["same_day_confidence"].sub(min_confidence).div(max_confidence - min_confidence)
+            confidence_ratio = confidence_ratio.clip(0.0, 1.0).fillna(0.0)
+            weight_alpha = (min_alpha + (1.0 - min_alpha) * confidence_ratio.pow(0.85)).clip(min_alpha, 1.0)
+        else:
+            weight_alpha = pd.Series(1.0, index=d.index, dtype=float)
     positive_colors = [f"rgba(22, 163, 74, {alpha:.3f})" for alpha in weight_alpha]
     negative_colors = [f"rgba(225, 29, 72, {alpha:.3f})" for alpha in weight_alpha]
 
@@ -1954,9 +1990,14 @@ def build_end_to_end_deviation_chart(trend_df: pd.DataFrame) -> go.Figure:
             "recent_minutes",
             "overall_minutes",
             "recent_deviation_pct",
-            "same_day_weight",
+            "same_day_confidence",
             "acq_caskets",
             "comp_caskets",
+            "acq_same_day_share",
+            "comp_same_day_share",
+            "acq_time_share",
+            "comp_time_share",
+            "same_day_weight",
         ]
     ]
     hover_template = (
@@ -1968,9 +2009,12 @@ def build_end_to_end_deviation_chart(trend_df: pd.DataFrame) -> go.Figure:
         "<br>Adjusted total: %{customdata[4]:.2f} min/casket"
         "<br>Recent total: %{customdata[5]:.2f} min/casket"
         "<br>Overall total: %{customdata[6]:.2f} min/casket"
-        "<br>Same-day weight: %{customdata[8]:.0f}"
+        "<br>Daily confidence: %{customdata[8]:.0%}"
         "<br>Acquired clues: %{customdata[9]:.0f}"
-        "<br>Completed caskets: %{customdata[10]:.0f}<extra></extra>"
+        "<br>Completed caskets: %{customdata[10]:.0f}"
+        "<br>Acquisition share: %{customdata[11]:.0%} same-day, %{customdata[13]:.0%} of time"
+        "<br>Completion share: %{customdata[12]:.0%} same-day, %{customdata[14]:.0%} of time"
+        "<br>Logged activity count: %{customdata[15]:.0f}<extra></extra>"
     )
 
     fig.add_trace(
