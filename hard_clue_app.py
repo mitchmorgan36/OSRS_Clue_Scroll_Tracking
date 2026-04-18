@@ -3402,5 +3402,9 @@ with tab_combo:
             f"spans of {END_TO_END_RECENT_ACQ_EWMA_SPAN} acquisition dates and {END_TO_END_RECENT_COMP_EWMA_SPAN} "
             "completion dates, and they are causal, so older points do not change when newer data is added. If "
             "only one side is logged on a date, the other side uses its recent EWMA value once it exists. "
-            "The dotted gray line is the flat overall weighted average across all logged data."
+            "The dotted gray line is the flat overall weighted average across all logged data. "
+            "Deviation bars compare each adjusted daily total with the recent EWMA: the percent label shows how much "
+            "that day was faster or slower than recent pace. Darker bars have higher daily confidence, based on how "
+            "much of the estimate came from same-day acquisition and completion data weighted by each side's share of "
+            "recent end-to-end time."
         )
