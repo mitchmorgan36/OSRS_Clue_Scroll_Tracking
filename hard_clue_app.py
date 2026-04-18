@@ -1977,6 +1977,11 @@ def build_end_to_end_deviation_chart(trend_df: pd.DataFrame) -> go.Figure:
 
     positive = d["recent_deviation_pct"].where(d["recent_deviation_pct"] >= 0)
     negative = d["recent_deviation_pct"].where(d["recent_deviation_pct"] < 0)
+    d["recent_deviation_label"] = d["recent_deviation_pct"].apply(
+        lambda value: "" if pd.isna(value) else f"{float(value):+.1f}%"
+    )
+    positive_labels = d["recent_deviation_label"].where(d["recent_deviation_pct"] >= 0, "")
+    negative_labels = d["recent_deviation_label"].where(d["recent_deviation_pct"] < 0, "")
     hover_data = d[
         [
             "adjusted_cph",
@@ -2008,10 +2013,34 @@ def build_end_to_end_deviation_chart(trend_df: pd.DataFrame) -> go.Figure:
 
     fig.add_trace(
         go.Bar(
+            x=[None],
+            y=[None],
+            name="Better than recent",
+            marker=dict(color="#16a34a"),
+            hoverinfo="skip",
+        )
+    )
+    fig.add_trace(
+        go.Bar(
+            x=[None],
+            y=[None],
+            name="Slower than recent",
+            marker=dict(color="#e11d48"),
+            hoverinfo="skip",
+        )
+    )
+    fig.add_trace(
+        go.Bar(
             x=d["date_label"],
             y=positive,
             name="Better than recent",
+            showlegend=False,
             marker=dict(color=positive_colors),
+            text=positive_labels,
+            textposition="outside",
+            texttemplate="%{text}",
+            textfont=dict(color="#e5e7eb", size=11),
+            cliponaxis=False,
             customdata=hover_data,
             hovertemplate=hover_template,
         )
@@ -2021,7 +2050,13 @@ def build_end_to_end_deviation_chart(trend_df: pd.DataFrame) -> go.Figure:
             x=d["date_label"],
             y=negative,
             name="Slower than recent",
+            showlegend=False,
             marker=dict(color=negative_colors),
+            text=negative_labels,
+            textposition="outside",
+            texttemplate="%{text}",
+            textfont=dict(color="#e5e7eb", size=11),
+            cliponaxis=False,
             customdata=hover_data,
             hovertemplate=hover_template,
         )
@@ -2041,7 +2076,7 @@ def build_end_to_end_deviation_chart(trend_df: pd.DataFrame) -> go.Figure:
     y_values = d["recent_deviation_pct"].dropna()
     if not y_values.empty:
         max_abs = max(abs(float(y_values.min())), abs(float(y_values.max())))
-        padded = max(max_abs * 1.18, 2.0)
+        padded = max(max_abs * 1.28, 2.0)
         if padded <= 6:
             dtick = 1.0
         elif padded <= 15:
