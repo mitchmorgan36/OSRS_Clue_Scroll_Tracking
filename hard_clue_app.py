@@ -2001,23 +2001,20 @@ def build_end_to_end_deviation_chart(trend_df: pd.DataFrame) -> go.Figure:
         ]
     ]
     hover_template = (
-        "%{x}"
-        "<br>Vs recent EWMA: %{y:.2f}% (positive means faster than recent)"
-        "<br>Adjusted daily pace: %{customdata[0]:.4f} caskets/hr (sample-adjusted day estimate)"
-        "<br>Recent EWMA pace: %{customdata[1]:.4f} caskets/hr (recent trend benchmark)"
-        "<br>Vs overall average: %{customdata[3]:.2f}% (day estimate vs all-time pace)"
-        "<br>Overall average: %{customdata[2]:.4f} caskets/hr (all logged data)"
-        "<br>Adjusted total: %{customdata[4]:.2f} min/casket (day estimate in minutes)"
-        "<br>Recent total: %{customdata[5]:.2f} min/casket (recent benchmark in minutes)"
-        "<br>Overall total: %{customdata[6]:.2f} min/casket (all-time benchmark in minutes)"
-        "<br>Daily confidence: %{customdata[8]:.0%} (controls bar opacity)"
-        "<br>Acquired clues: %{customdata[9]:.0f} (same-day acquisition count)"
-        "<br>Completed caskets: %{customdata[10]:.0f} (same-day completion count)"
-        "<br>Acq same-day share: %{customdata[11]:.0%} (how much today's acquisition sample counts)"
-        "<br>Acq time share: %{customdata[13]:.0%} (acquisition share of recent total time)"
-        "<br>Comp same-day share: %{customdata[12]:.0%} (how much today's completion sample counts)"
-        "<br>Comp time share: %{customdata[14]:.0%} (completion share of recent total time)"
-        "<br>Logged activity count: %{customdata[15]:.0f} (raw clues+caskets context)<extra></extra>"
+        "%{x}<br>Vs recent EWMA: %{y:.2f}%"
+        "<br>Adjusted daily pace: %{customdata[0]:.4f} caskets/hr"
+        "<br>Recent EWMA pace: %{customdata[1]:.4f} caskets/hr"
+        "<br>Vs overall average: %{customdata[3]:.2f}%"
+        "<br>Overall average: %{customdata[2]:.4f} caskets/hr"
+        "<br>Adjusted total: %{customdata[4]:.2f} min/casket"
+        "<br>Recent total: %{customdata[5]:.2f} min/casket"
+        "<br>Overall total: %{customdata[6]:.2f} min/casket"
+        "<br>Daily confidence: %{customdata[8]:.0%}"
+        "<br>Acquired clues: %{customdata[9]:.0f}"
+        "<br>Completed caskets: %{customdata[10]:.0f}"
+        "<br>Acquisition share: %{customdata[11]:.0%} same-day, %{customdata[13]:.0%} of time"
+        "<br>Completion share: %{customdata[12]:.0%} same-day, %{customdata[14]:.0%} of time"
+        "<br>Logged activity count: %{customdata[15]:.0f}<extra></extra>"
     )
 
     fig.add_trace(
