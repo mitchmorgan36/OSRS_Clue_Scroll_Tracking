@@ -3398,11 +3398,12 @@ with tab_combo:
         st.caption(
             f"**End-to-end caskets/hr chart.** Hollow circles are same-day points: blue shows raw acquisition, green "
             f"shows raw completion, and red shows a sample-adjusted daily total. Red blends each same-day component "
-            f"with its own recent EWMA baseline based on that component's same-day count. The EWMA lines use spans of "
-            f"{END_TO_END_RECENT_ACQ_EWMA_SPAN} acquisition dates and {END_TO_END_RECENT_COMP_EWMA_SPAN} completion "
-            "dates, and they are causal, so older points do not change when newer data is added. If only one side is "
-            "logged on a date, the other side uses its recent EWMA value once it exists. The dotted gray line is the "
-            "flat overall weighted average across all logged data."
+            f"with its own recent EWMA baseline based on that component's same-day count. EWMA means exponentially "
+            f"weighted moving average: a recent-pace line that weights newer logged dates more heavily than older "
+            f"logged dates. These lines use spans of {END_TO_END_RECENT_ACQ_EWMA_SPAN} acquisition dates and "
+            f"{END_TO_END_RECENT_COMP_EWMA_SPAN} completion dates, and they are causal, so older points do not change "
+            "when newer data is added. If only one side is logged on a date, the other side uses its recent EWMA value "
+            "once it exists. The dotted gray line is the flat overall weighted average across all logged data."
         )
         st.caption(
             "**End-to-end daily deviation chart.** Bars compare each adjusted daily total with the recent EWMA. The "
