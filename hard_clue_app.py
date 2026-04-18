@@ -1894,7 +1894,7 @@ def build_end_to_end_deviation_chart(trend_df: pd.DataFrame) -> go.Figure:
         barmode="overlay",
         bargap=0.28,
         xaxis=dict(
-            title=dict(text="Date", standoff=END_TO_END_X_TITLE_STANDOFF),
+            title=dict(text="Date", standoff=44),
             type="category",
             tickangle=-35,
             automargin=True,
@@ -1929,6 +1929,18 @@ def build_end_to_end_deviation_chart(trend_df: pd.DataFrame) -> go.Figure:
     d["adjusted_minutes"] = pd.to_numeric(d["adjusted_total_minutes_per_casket"], errors="coerce")
     d["recent_minutes"] = pd.to_numeric(d["recent_total_minutes_per_casket"], errors="coerce")
     d["overall_minutes"] = pd.to_numeric(d["all_time_total_minutes_per_casket"], errors="coerce")
+    d["same_day_weight"] = pd.to_numeric(d["raw_total_same_day_weight"], errors="coerce").fillna(0.0)
+    d["acq_caskets"] = pd.to_numeric(d["acq_caskets"], errors="coerce").fillna(0.0)
+    d["comp_caskets"] = pd.to_numeric(d["comp_caskets"], errors="coerce").fillna(0.0)
+
+    max_weight = float(d["same_day_weight"].max())
+    if max_weight > 0:
+        weight_ratio = d["same_day_weight"].clip(lower=0.0).div(max_weight)
+        weight_alpha = (0.08 + 0.92 * weight_ratio.pow(1.45)).clip(0.08, 1.0)
+    else:
+        weight_alpha = pd.Series(0.08, index=d.index, dtype=float)
+    positive_colors = [f"rgba(22, 163, 74, {alpha:.3f})" for alpha in weight_alpha]
+    negative_colors = [f"rgba(225, 29, 72, {alpha:.3f})" for alpha in weight_alpha]
 
     positive = d["recent_deviation_pct"].where(d["recent_deviation_pct"] >= 0)
     negative = d["recent_deviation_pct"].where(d["recent_deviation_pct"] < 0)
@@ -1942,6 +1954,9 @@ def build_end_to_end_deviation_chart(trend_df: pd.DataFrame) -> go.Figure:
             "recent_minutes",
             "overall_minutes",
             "recent_deviation_pct",
+            "same_day_weight",
+            "acq_caskets",
+            "comp_caskets",
         ]
     ]
     hover_template = (
@@ -1952,7 +1967,10 @@ def build_end_to_end_deviation_chart(trend_df: pd.DataFrame) -> go.Figure:
         "<br>Overall average: %{customdata[2]:.4f} caskets/hr"
         "<br>Adjusted total: %{customdata[4]:.2f} min/casket"
         "<br>Recent total: %{customdata[5]:.2f} min/casket"
-        "<br>Overall total: %{customdata[6]:.2f} min/casket<extra></extra>"
+        "<br>Overall total: %{customdata[6]:.2f} min/casket"
+        "<br>Same-day weight: %{customdata[8]:.0f}"
+        "<br>Acquired clues: %{customdata[9]:.0f}"
+        "<br>Completed caskets: %{customdata[10]:.0f}<extra></extra>"
     )
 
     fig.add_trace(
@@ -1960,7 +1978,7 @@ def build_end_to_end_deviation_chart(trend_df: pd.DataFrame) -> go.Figure:
             x=d["date_label"],
             y=positive,
             name="Better than recent",
-            marker_color="#16a34a",
+            marker=dict(color=positive_colors),
             customdata=hover_data,
             hovertemplate=hover_template,
         )
@@ -1970,28 +1988,11 @@ def build_end_to_end_deviation_chart(trend_df: pd.DataFrame) -> go.Figure:
             x=d["date_label"],
             y=negative,
             name="Slower than recent",
-            marker_color="#e11d48",
+            marker=dict(color=negative_colors),
             customdata=hover_data,
             hovertemplate=hover_template,
         )
     )
-    fig.add_trace(
-        go.Scatter(
-            x=d["date_label"],
-            y=d["overall_deviation_pct"],
-            mode="markers",
-            name="Vs overall average",
-            marker=dict(symbol="diamond", size=8, color="#64748b", line=dict(color="#334155", width=1)),
-            customdata=hover_data,
-            hovertemplate=(
-                "%{x}<br>Vs overall average: %{y:.2f}%"
-                "<br>Adjusted daily pace: %{customdata[0]:.4f} caskets/hr"
-                "<br>Overall average: %{customdata[2]:.4f} caskets/hr"
-                "<br>Vs recent EWMA: %{customdata[7]:.2f}%"
-                "<br>Recent EWMA pace: %{customdata[1]:.4f} caskets/hr<extra></extra>"
-            ),
-        )
-    )
     fig.add_shape(
         type="line",
         xref="paper",
@@ -2001,21 +2002,10 @@ def build_end_to_end_deviation_chart(trend_df: pd.DataFrame) -> go.Figure:
         y0=0,
         y1=0,
         layer="above",
-        line=dict(color="rgba(15, 23, 42, 0.86)", width=7),
-    )
-    fig.add_shape(
-        type="line",
-        xref="paper",
-        x0=0,
-        x1=1,
-        yref="y",
-        y0=0,
-        y1=0,
-        layer="above",
-        line=dict(color="#ffffff", width=3),
+        line=dict(color="#ffffff", width=0.75),
     )
 
-    y_values = pd.concat([d["recent_deviation_pct"], d["overall_deviation_pct"]], axis=0).dropna()
+    y_values = d["recent_deviation_pct"].dropna()
     if not y_values.empty:
         max_abs = max(abs(float(y_values.min())), abs(float(y_values.max())))
         padded = max(max_abs * 1.18, 2.0)
