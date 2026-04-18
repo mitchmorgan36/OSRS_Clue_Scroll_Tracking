@@ -2007,6 +2007,17 @@ def build_end_to_end_deviation_chart(trend_df: pd.DataFrame) -> go.Figure:
     )
 
     fig.add_trace(
+        go.Scatter(
+            x=d["date_label"],
+            y=[0.0] * len(d),
+            mode="lines",
+            name="Zero line",
+            showlegend=False,
+            hoverinfo="skip",
+            line=dict(color="#ffffff", width=0.75),
+        )
+    )
+    fig.add_trace(
         go.Bar(
             x=d["date_label"],
             y=positive,
@@ -2025,17 +2036,6 @@ def build_end_to_end_deviation_chart(trend_df: pd.DataFrame) -> go.Figure:
             customdata=hover_data,
             hovertemplate=hover_template,
         )
-    )
-    fig.add_shape(
-        type="line",
-        xref="paper",
-        x0=0,
-        x1=1,
-        yref="y",
-        y0=0,
-        y1=0,
-        layer="above",
-        line=dict(color="#ffffff", width=0.75),
     )
 
     y_values = d["recent_deviation_pct"].dropna()
