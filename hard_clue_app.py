@@ -3396,15 +3396,17 @@ with tab_combo:
         else:
             st.caption("Full end-to-end summary cards and pie charts appear after at least one acquisition and one completion entry.")
         st.caption(
-            f"Hollow circles are same-day points: blue shows raw acquisition, green shows raw completion, and red shows "
-            f"a sample-adjusted daily total. Red blends each same-day component with its own recent EWMA baseline based "
-            f"on that component's same-day count. The EWMA lines use "
-            f"spans of {END_TO_END_RECENT_ACQ_EWMA_SPAN} acquisition dates and {END_TO_END_RECENT_COMP_EWMA_SPAN} "
-            "completion dates, and they are causal, so older points do not change when newer data is added. If "
-            "only one side is logged on a date, the other side uses its recent EWMA value once it exists. "
-            "The dotted gray line is the flat overall weighted average across all logged data. "
-            "Deviation bars compare each adjusted daily total with the recent EWMA: the percent label shows how much "
-            "that day was faster or slower than recent pace. Darker bars have higher daily confidence, based on how "
-            "much of the estimate came from same-day acquisition and completion data weighted by each side's share of "
-            "recent end-to-end time."
+            f"**End-to-end caskets/hr chart.** Hollow circles are same-day points: blue shows raw acquisition, green "
+            f"shows raw completion, and red shows a sample-adjusted daily total. Red blends each same-day component "
+            f"with its own recent EWMA baseline based on that component's same-day count. The EWMA lines use spans of "
+            f"{END_TO_END_RECENT_ACQ_EWMA_SPAN} acquisition dates and {END_TO_END_RECENT_COMP_EWMA_SPAN} completion "
+            "dates, and they are causal, so older points do not change when newer data is added. If only one side is "
+            "logged on a date, the other side uses its recent EWMA value once it exists. The dotted gray line is the "
+            "flat overall weighted average across all logged data."
+        )
+        st.caption(
+            "**End-to-end daily deviation chart.** Bars compare each adjusted daily total with the recent EWMA. The "
+            "percent label shows how much that day was faster or slower than recent pace. Darker bars have higher "
+            "daily confidence, based on how much of the estimate came from same-day acquisition and completion data "
+            "weighted by each side's share of recent end-to-end time."
         )
