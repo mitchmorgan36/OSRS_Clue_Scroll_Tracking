@@ -1089,7 +1089,14 @@ def ensure_adjusted_end_to_end_columns(trend_df: pd.DataFrame) -> pd.DataFrame:
 def make_chart_legend_below(y: float | None = None, chart_height: int | None = None) -> dict:
     if y is None:
         y = PRIMARY_LEGEND_Y
-    return dict(orientation="h", yanchor="top", y=y, xanchor="center", x=0.5)
+    return dict(
+        orientation="h",
+        yanchor="top",
+        y=y,
+        xanchor="center",
+        x=0.5,
+        groupclick="togglegroup",
+    )
 
 
 def make_line_layout(
@@ -1708,6 +1715,7 @@ def build_end_to_end_cph_chart(trend_df: pd.DataFrame) -> go.Figure:
             y=[None],
             mode="markers",
             name="Adjusted daily total",
+            legendgroup="raw_points",
             hoverinfo="skip",
             marker=dict(
                 size=11,
@@ -1723,6 +1731,7 @@ def build_end_to_end_cph_chart(trend_df: pd.DataFrame) -> go.Figure:
             mode="markers",
             name="Adjusted daily total",
             showlegend=False,
+            legendgroup="raw_points",
             marker=dict(
                 size=raw_total_sizes,
                 color="rgba(220, 38, 38, 0)",
@@ -1762,6 +1771,7 @@ def build_end_to_end_cph_chart(trend_df: pd.DataFrame) -> go.Figure:
             mode="markers",
             name="Raw acquisition point",
             showlegend=False,
+            legendgroup="raw_points",
             marker=dict(
                 size=raw_acq_sizes,
                 color="rgba(29, 78, 216, 0)",
@@ -1792,6 +1802,7 @@ def build_end_to_end_cph_chart(trend_df: pd.DataFrame) -> go.Figure:
             mode="markers",
             name="Raw completion point",
             showlegend=False,
+            legendgroup="raw_points",
             marker=dict(
                 size=raw_comp_sizes,
                 color="rgba(15, 118, 110, 0)",
@@ -1815,18 +1826,6 @@ def build_end_to_end_cph_chart(trend_df: pd.DataFrame) -> go.Figure:
             hovertemplate="%{x}<br>Recent completion pace: %{y:.2f} caskets/hr<extra></extra>",
         )
     )
-    y_values = pd.concat(
-        [
-            trend_df["adjusted_end_to_end_caskets_per_hour"],
-            trend_df["recent_end_to_end_caskets_per_hour"],
-            trend_df["raw_acquire_caskets_per_hour"],
-            trend_df["recent_acquire_caskets_per_hour"],
-            trend_df["raw_complete_caskets_per_hour"],
-            trend_df["recent_complete_caskets_per_hour"],
-            trend_df["all_time_end_to_end_caskets_per_hour"],
-        ],
-        axis=0,
-    ).dropna()
     yaxis_config = dict(
         title="Caskets per hour",
         automargin=True,
@@ -1836,22 +1835,6 @@ def build_end_to_end_cph_chart(trend_df: pd.DataFrame) -> go.Figure:
         ticklen=5,
         tickcolor="rgba(148, 163, 184, 0.42)",
     )
-    if not y_values.empty:
-        y_min = float(y_values.min())
-        y_max = float(y_values.max())
-        span = max(y_max - y_min, 0.01)
-        pad = max(span * 0.06, 0.08)
-        if span <= 1.5:
-            dtick = 0.25
-        elif span <= 3.0:
-            dtick = 0.5
-        else:
-            dtick = 1.0
-        y_lower = max(0.0, math.floor((y_min - pad) / dtick) * dtick)
-        y_upper = math.ceil((y_max + pad) / dtick) * dtick
-        if y_upper <= y_lower:
-            y_upper = y_lower + dtick
-        yaxis_config.update(range=[y_lower, y_upper], tickmode="linear", dtick=dtick)
     fig.add_trace(
         go.Scatter(
             x=trend_df["date_label"],
@@ -1880,6 +1863,195 @@ def build_end_to_end_cph_chart(trend_df: pd.DataFrame) -> go.Figure:
         ),
         yaxis=yaxis_config,
     )
+    return fig
+
+
+def build_end_to_end_deviation_chart(trend_df: pd.DataFrame) -> go.Figure:
+    fig = go.Figure()
+    chart_height = SECONDARY_DETAIL_CHART_HEIGHT
+    fig.update_layout(
+        title="End-to-end daily deviation",
+        height=chart_height,
+        margin=dict(l=40, r=40, t=CHART_TOP_MARGIN, b=LINE_CHART_BOTTOM_MARGIN),
+        legend=make_chart_legend_below(y=SECONDARY_LEGEND_Y, chart_height=chart_height),
+        barmode="overlay",
+        bargap=0.28,
+        xaxis=dict(
+            title=dict(text="Date", standoff=44),
+            type="category",
+            tickangle=-35,
+            automargin=True,
+            categoryorder="array",
+            categoryarray=trend_df["date_label"].tolist() if "date_label" in trend_df else [],
+            showline=False,
+            ticks="",
+        ),
+        yaxis=dict(
+            title="Deviation from recent EWMA",
+            ticksuffix="%",
+            zeroline=False,
+            showline=True,
+            linecolor="rgba(148, 163, 184, 0.42)",
+            ticks="outside",
+            ticklen=5,
+            tickcolor="rgba(148, 163, 184, 0.42)",
+        ),
+    )
+    if trend_df.empty:
+        return fig
+
+    d = trend_df.copy()
+    adjusted_cph = pd.to_numeric(d["adjusted_end_to_end_caskets_per_hour"], errors="coerce")
+    recent_cph = pd.to_numeric(d["recent_end_to_end_caskets_per_hour"], errors="coerce")
+    overall_cph = pd.to_numeric(d["all_time_end_to_end_caskets_per_hour"], errors="coerce")
+    d["recent_deviation_pct"] = (adjusted_cph.div(recent_cph.where(recent_cph > 0)) - 1.0) * 100.0
+    d["overall_deviation_pct"] = (adjusted_cph.div(overall_cph.where(overall_cph > 0)) - 1.0) * 100.0
+    d["adjusted_cph"] = adjusted_cph
+    d["recent_cph"] = recent_cph
+    d["overall_cph"] = overall_cph
+    d["acq_caskets"] = pd.to_numeric(d["acq_caskets"], errors="coerce").fillna(0.0)
+    d["comp_caskets"] = pd.to_numeric(d["comp_caskets"], errors="coerce").fillna(0.0)
+    d["acq_same_day_share"] = (
+        pd.to_numeric(d["adjusted_acquire_same_day_share"], errors="coerce").fillna(0.0).clip(0.0, 1.0)
+    )
+    d["comp_same_day_share"] = (
+        pd.to_numeric(d["adjusted_complete_same_day_share"], errors="coerce").fillna(0.0).clip(0.0, 1.0)
+    )
+
+    recent_acq_minutes = pd.to_numeric(d["recent_acquire_minutes_per_casket"], errors="coerce")
+    recent_comp_minutes = pd.to_numeric(d["recent_complete_minutes_per_casket"], errors="coerce")
+    recent_component_total = recent_acq_minutes + recent_comp_minutes
+    d["acq_time_share"] = recent_acq_minutes.div(recent_component_total.where(recent_component_total > 0))
+    d["comp_time_share"] = recent_comp_minutes.div(recent_component_total.where(recent_component_total > 0))
+
+    adjusted_acq_minutes = pd.to_numeric(d["adjusted_acquire_minutes_per_casket"], errors="coerce")
+    adjusted_comp_minutes = pd.to_numeric(d["adjusted_complete_minutes_per_casket"], errors="coerce")
+    adjusted_component_total = adjusted_acq_minutes + adjusted_comp_minutes
+    d["acq_time_share"] = d["acq_time_share"].where(
+        d["acq_time_share"].notna(),
+        adjusted_acq_minutes.div(adjusted_component_total.where(adjusted_component_total > 0)),
+    )
+    d["comp_time_share"] = d["comp_time_share"].where(
+        d["comp_time_share"].notna(),
+        adjusted_comp_minutes.div(adjusted_component_total.where(adjusted_component_total > 0)),
+    )
+    d["acq_time_share"] = d["acq_time_share"].fillna(0.0).clip(0.0, 1.0)
+    d["comp_time_share"] = d["comp_time_share"].fillna(0.0).clip(0.0, 1.0)
+    d["same_day_confidence"] = (
+        (d["acq_same_day_share"] * d["acq_time_share"])
+        + (d["comp_same_day_share"] * d["comp_time_share"])
+    ).fillna(0.0).clip(0.0, 1.0)
+    visible_confidence = d["same_day_confidence"].where(d["recent_deviation_pct"].notna()).dropna()
+    min_alpha = 0.18
+    if visible_confidence.empty:
+        weight_alpha = pd.Series(min_alpha, index=d.index, dtype=float)
+    else:
+        min_confidence = float(visible_confidence.min())
+        max_confidence = float(visible_confidence.max())
+        if max_confidence > min_confidence:
+            confidence_ratio = d["same_day_confidence"].sub(min_confidence).div(max_confidence - min_confidence)
+            confidence_ratio = confidence_ratio.clip(0.0, 1.0).fillna(0.0)
+            weight_alpha = (min_alpha + (1.0 - min_alpha) * confidence_ratio.pow(0.85)).clip(min_alpha, 1.0)
+        else:
+            weight_alpha = pd.Series(1.0, index=d.index, dtype=float)
+    positive_colors = [f"rgba(22, 163, 74, {alpha:.3f})" for alpha in weight_alpha]
+    negative_colors = [f"rgba(225, 29, 72, {alpha:.3f})" for alpha in weight_alpha]
+
+    positive = d["recent_deviation_pct"].where(d["recent_deviation_pct"] >= 0)
+    negative = d["recent_deviation_pct"].where(d["recent_deviation_pct"] < 0)
+    d["recent_deviation_label"] = d["recent_deviation_pct"].apply(
+        lambda value: "" if pd.isna(value) else f"{float(value):+.1f}%"
+    )
+    positive_labels = d["recent_deviation_label"].where(d["recent_deviation_pct"] >= 0, "")
+    negative_labels = d["recent_deviation_label"].where(d["recent_deviation_pct"] < 0, "")
+    hover_data = d[
+        [
+            "adjusted_cph",
+            "recent_cph",
+            "overall_cph",
+            "overall_deviation_pct",
+            "same_day_confidence",
+            "acq_caskets",
+            "comp_caskets",
+        ]
+    ]
+    hover_template = (
+        "%{x}<br>Vs recent pace: %{y:.2f}%"
+        "<br>Adjusted pace: %{customdata[0]:.4f} caskets/hr"
+        "<br>Recent pace: %{customdata[1]:.4f} caskets/hr"
+        "<br>Vs overall average: %{customdata[3]:.2f}%"
+        "<br>Overall average: %{customdata[2]:.4f} caskets/hr"
+        "<br>Daily confidence: %{customdata[4]:.0%}"
+        "<br>Logged: %{customdata[5]:.0f} acquired, %{customdata[6]:.0f} completed"
+        "<extra></extra>"
+    )
+
+    fig.add_trace(
+        go.Bar(
+            x=[None],
+            y=[None],
+            name="Better than recent",
+            legendgroup="better_than_recent",
+            marker=dict(color="#16a34a"),
+            hoverinfo="skip",
+        )
+    )
+    fig.add_trace(
+        go.Bar(
+            x=[None],
+            y=[None],
+            name="Slower than recent",
+            legendgroup="slower_than_recent",
+            marker=dict(color="#e11d48"),
+            hoverinfo="skip",
+        )
+    )
+    fig.add_trace(
+        go.Bar(
+            x=d["date_label"],
+            y=positive,
+            name="Better than recent",
+            showlegend=False,
+            legendgroup="better_than_recent",
+            marker=dict(color=positive_colors),
+            text=positive_labels,
+            textposition="outside",
+            texttemplate="%{text}",
+            textfont=dict(color="#e5e7eb", size=11),
+            cliponaxis=False,
+            customdata=hover_data,
+            hovertemplate=hover_template,
+        )
+    )
+    fig.add_trace(
+        go.Bar(
+            x=d["date_label"],
+            y=negative,
+            name="Slower than recent",
+            showlegend=False,
+            legendgroup="slower_than_recent",
+            marker=dict(color=negative_colors),
+            text=negative_labels,
+            textposition="outside",
+            texttemplate="%{text}",
+            textfont=dict(color="#e5e7eb", size=11),
+            cliponaxis=False,
+            customdata=hover_data,
+            hovertemplate=hover_template,
+        )
+    )
+    fig.add_shape(
+        type="line",
+        xref="paper",
+        x0=0,
+        x1=1,
+        yref="y",
+        y0=0,
+        y1=0,
+        layer="above",
+        line=dict(color="#ffffff", width=0.75),
+    )
+
     return fig
 
 
@@ -3214,6 +3386,7 @@ with tab_combo:
         st.divider()
         st.subheader("Charts")
         st.plotly_chart(build_end_to_end_cph_chart(end_to_end_trend_df), width="stretch")
+        st.plotly_chart(build_end_to_end_deviation_chart(end_to_end_trend_df), width="stretch")
         if end_to_end_sum:
             pie_col1, pie_col2 = st.columns(2)
             with pie_col1:
@@ -3223,11 +3396,18 @@ with tab_combo:
         else:
             st.caption("Full end-to-end summary cards and pie charts appear after at least one acquisition and one completion entry.")
         st.caption(
-            f"Hollow circles are same-day points: blue shows raw acquisition, green shows raw completion, and red shows "
-            f"a sample-adjusted daily total. Red blends each same-day component with its own recent EWMA baseline based "
-            f"on that component's same-day count. The EWMA lines use "
-            f"spans of {END_TO_END_RECENT_ACQ_EWMA_SPAN} acquisition dates and {END_TO_END_RECENT_COMP_EWMA_SPAN} "
-            "completion dates, and they are causal, so older points do not change when newer data is added. If "
-            "only one side is logged on a date, the other side uses its recent EWMA value once it exists. "
-            "The dotted gray line is the flat overall weighted average across all logged data."
+            f"**End-to-end caskets/hr chart.** Hollow circles are same-day points: blue shows raw acquisition, green "
+            f"shows raw completion, and red shows a sample-adjusted daily total. Red blends each same-day component "
+            f"with its own recent EWMA baseline based on that component's same-day count. EWMA means exponentially "
+            f"weighted moving average: a recent-pace line that weights newer logged dates more heavily than older "
+            f"logged dates. These lines use spans of {END_TO_END_RECENT_ACQ_EWMA_SPAN} acquisition dates and "
+            f"{END_TO_END_RECENT_COMP_EWMA_SPAN} completion dates, and they are causal, so older points do not change "
+            "when newer data is added. If only one side is logged on a date, the other side uses its recent EWMA value "
+            "once it exists. The dotted gray line is the flat overall weighted average across all logged data."
+        )
+        st.caption(
+            "**End-to-end daily deviation chart.** Bars compare each adjusted daily total with the recent EWMA. The "
+            "percent label shows how much that day was faster or slower than recent pace. Darker bars have higher "
+            "daily confidence, based on how much of the estimate came from same-day acquisition and completion data "
+            "weighted by each side's share of recent end-to-end time."
         )
