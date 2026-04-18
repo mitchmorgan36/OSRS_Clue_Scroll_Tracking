@@ -1995,16 +1995,15 @@ def build_end_to_end_deviation_chart(trend_df: pd.DataFrame) -> go.Figure:
     ]
     hover_template = (
         "%{x}<br>Vs recent EWMA: %{y:.2f}%"
-        "<br>Adjusted total: %{customdata[0]:.4f} caskets/hr"
-        "<br>Recent total: %{customdata[1]:.4f} caskets/hr"
+        "<br>Adjusted pace: %{customdata[0]:.4f} caskets/hr"
+        "<br>Recent EWMA: %{customdata[1]:.4f} caskets/hr"
         "<br>Vs overall average: %{customdata[3]:.2f}%"
-        "<br>Overall total: %{customdata[2]:.4f} caskets/hr"
+        "<br>Overall average: %{customdata[2]:.4f} caskets/hr"
         "<br>Daily confidence: %{customdata[4]:.0%}"
-        "<br>Acquired clues: %{customdata[5]:.0f}"
-        "<br>Completed caskets: %{customdata[6]:.0f}"
-        "<br>Acquisition share: %{customdata[7]:.0%} same-day, %{customdata[9]:.0%} of time"
-        "<br>Completion share: %{customdata[8]:.0%} same-day, %{customdata[10]:.0%} of time"
-        "<br>Logged activity count: %{customdata[11]:.0f}<extra></extra>"
+        "<br>Acquisition confidence: %{customdata[7]:.0%} sample weight x %{customdata[9]:.0%} time share"
+        "<br>Completion confidence: %{customdata[8]:.0%} sample weight x %{customdata[10]:.0%} time share"
+        "<br>Logged: %{customdata[5]:.0f} acquired, %{customdata[6]:.0f} completed"
+        "<br>Raw activity count: %{customdata[11]:.0f}<extra></extra>"
     )
 
     fig.add_trace(
