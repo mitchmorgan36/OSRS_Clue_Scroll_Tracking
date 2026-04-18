@@ -1904,7 +1904,7 @@ def build_end_to_end_deviation_chart(trend_df: pd.DataFrame) -> go.Figure:
             ticks="",
         ),
         yaxis=dict(
-            title="Deviation from benchmark",
+            title="Deviation from recent EWMA",
             ticksuffix="%",
             zeroline=False,
             showline=True,
