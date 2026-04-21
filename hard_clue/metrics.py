@@ -323,7 +323,7 @@ from .config import (
     RUNE_ARMOR_GP_PER_CLUE,
     RUNE_ARMOR_GP_PER_KILL,
 )
-from .formatting import seconds_to_hhmm
+from .formatting import clamp_nonnegative_int, seconds_to_hhmm
 
 def coerce_numeric(df: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
     out = df.copy()
