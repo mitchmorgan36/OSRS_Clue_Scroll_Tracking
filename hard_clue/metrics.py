@@ -3,6 +3,18 @@ from typing import Any, Dict
 import pandas as pd
 
 
+ADJUSTED_END_TO_END_COLUMNS = (
+    "adjusted_acquire_minutes_per_casket",
+    "adjusted_complete_minutes_per_casket",
+    "adjusted_total_minutes_per_casket",
+    "adjusted_end_to_end_caskets_per_hour",
+    "adjusted_acquire_same_day_share",
+    "adjusted_complete_same_day_share",
+    "adjusted_acquire_baseline_caskets",
+    "adjusted_complete_baseline_caskets",
+)
+
+
 def _valid_weighted_parts(numerator: pd.Series, denominator: pd.Series) -> tuple[pd.Series, pd.Series]:
     num = pd.to_numeric(pd.Series(numerator), errors="coerce")
     den = pd.to_numeric(pd.Series(denominator), errors="coerce")

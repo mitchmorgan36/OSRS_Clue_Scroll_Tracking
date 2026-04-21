@@ -6,7 +6,7 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from hard_clue.metrics import build_end_to_end_trend_df
+from hard_clue.metrics import build_end_to_end_trend_df, ensure_adjusted_end_to_end_columns
 
 
 def assert_close(actual: float, expected: float, label: str) -> None:
@@ -188,6 +188,21 @@ def main() -> None:
         prior_only = prefix_trend_df[col].reset_index(drop=True)
         if not full_prefix.equals(prior_only):
             raise AssertionError(f"{col}: adding future rows should not change earlier EWMA points")
+
+    adjusted_cols = [
+        "adjusted_acquire_minutes_per_casket",
+        "adjusted_complete_minutes_per_casket",
+        "adjusted_total_minutes_per_casket",
+        "adjusted_end_to_end_caskets_per_hour",
+        "adjusted_acquire_same_day_share",
+        "adjusted_complete_same_day_share",
+        "adjusted_acquire_baseline_caskets",
+        "adjusted_complete_baseline_caskets",
+    ]
+    backfilled = ensure_adjusted_end_to_end_columns(trend_df.drop(columns=adjusted_cols))
+    for col in adjusted_cols:
+        if col not in backfilled.columns:
+            raise AssertionError(f"{col}: missing after adjusted column backfill")
 
 
 if __name__ == "__main__":
