@@ -2,6 +2,23 @@ from typing import Any, Dict
 
 import pandas as pd
 
+from .config import (
+    CHAOS_RUNE_GP_PER_CLUE,
+    CHAOS_RUNE_GP_PER_KILL,
+    CHAOS_RUNES_PER_KILL,
+    COMBINED_ACQUISITION_GP_INCOME_PER_CLUE,
+    DEATH_RUNE_GP_PER_CLUE,
+    DEATH_RUNE_GP_PER_KILL,
+    DEATH_RUNES_PER_KILL,
+    END_TO_END_RECENT_ACQ_EWMA_SPAN,
+    END_TO_END_RECENT_COMP_EWMA_SPAN,
+    EXPECTED_ALCH_GP_PER_CASKET,
+    JELLY_KILLS_PER_HARD_CLUE,
+    RUNE_ARMOR_GP_PER_CLUE,
+    RUNE_ARMOR_GP_PER_KILL,
+)
+from .formatting import clamp_nonnegative_int, seconds_to_hhmm
+
 
 ADJUSTED_END_TO_END_COLUMNS = (
     "adjusted_acquire_minutes_per_casket",
@@ -307,23 +324,6 @@ def build_end_to_end_trend_df(
     d["date_label"] = d["date"].dt.strftime("%Y-%m-%d")
     return d
 
-
-from .config import (
-    CHAOS_RUNE_GP_PER_CLUE,
-    CHAOS_RUNE_GP_PER_KILL,
-    CHAOS_RUNES_PER_KILL,
-    COMBINED_ACQUISITION_GP_INCOME_PER_CLUE,
-    DEATH_RUNE_GP_PER_CLUE,
-    DEATH_RUNE_GP_PER_KILL,
-    DEATH_RUNES_PER_KILL,
-    END_TO_END_RECENT_ACQ_EWMA_SPAN,
-    END_TO_END_RECENT_COMP_EWMA_SPAN,
-    EXPECTED_ALCH_GP_PER_CASKET,
-    JELLY_KILLS_PER_HARD_CLUE,
-    RUNE_ARMOR_GP_PER_CLUE,
-    RUNE_ARMOR_GP_PER_KILL,
-)
-from .formatting import clamp_nonnegative_int, seconds_to_hhmm
 
 def coerce_numeric(df: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
     out = df.copy()
