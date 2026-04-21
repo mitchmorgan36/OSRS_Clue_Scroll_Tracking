@@ -6,7 +6,7 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from weighted_metrics import ewma_mean, ewma_weighted_ratio, rolling_weighted_ratio, weighted_ratio
+from hard_clue.metrics import ewma_mean, ewma_weighted_ratio, rolling_weighted_ratio, weighted_ratio
 
 
 def assert_close(actual: float, expected: float, label: str) -> None:

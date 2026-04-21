@@ -3,6 +3,7 @@ from __future__ import annotations
 import random
 import time
 from typing import Any
+from uuid import uuid4
 
 import gspread
 import pandas as pd
@@ -10,12 +11,6 @@ import streamlit as st
 from google.oauth2.service_account import Credentials
 
 
-ACQ_SHEET = "acquisition_trips"
-COMP_SHEET = "completion_sessions"
-GOAL_PROGRESS_STATE_SHEET = "goal_progress_state"
-GOAL_SETTINGS_SHEET = "goal_settings"
-ACQ_LOGGER_STATE_SHEET = "acquisition_logger_state"
-COMP_LOGGER_STATE_SHEET = "completion_logger_state"
 
 # Scopes consistent with service-account write access for Sheets/Drive.
 SCOPES = [
@@ -106,7 +101,8 @@ def _clean_value(v: Any) -> Any:
 
 
 
-def read_sheet_df(sheet_name: str, headers: list[str]) -> pd.DataFrame:
+def read_sheet_df(sheet_name: str, headers: list[str] | tuple[str, ...]) -> pd.DataFrame:
+    headers = list(headers)
     ws = _get_worksheet(sheet_name)
     values = _call_with_backoff(ws.get_all_values)
 
@@ -137,7 +133,8 @@ def read_sheet_df(sheet_name: str, headers: list[str]) -> pd.DataFrame:
 
 
 
-def append_row(sheet_name: str, headers: list[str], row_dict: dict[str, Any]) -> None:
+def append_row(sheet_name: str, headers: list[str] | tuple[str, ...], row_dict: dict[str, Any]) -> None:
+    headers = list(headers)
     ws = _get_worksheet(sheet_name)
     existing_headers = _call_with_backoff(ws.row_values, 1)
     if not existing_headers:
@@ -154,10 +151,30 @@ def append_row(sheet_name: str, headers: list[str], row_dict: dict[str, Any]) ->
 
 
 
-def replace_sheet(sheet_name: str, headers: list[str], df: pd.DataFrame) -> None:
+def replace_sheet(sheet_name: str, headers: list[str] | tuple[str, ...], df: pd.DataFrame) -> None:
+    headers = list(headers)
     ws = _get_worksheet(sheet_name)
     data = [headers]
     for _, r in df.iterrows():
         data.append([_clean_value(r.get(col, "")) for col in headers])
     _call_with_backoff(ws.clear)
     _call_with_backoff(ws.update, data)
+
+
+@st.cache_data(show_spinner=False)
+def load_df(sheet_name: str, columns: tuple[str, ...], session_cache_key: str) -> pd.DataFrame:
+    df = read_sheet_df(sheet_name, columns)
+    for col in columns:
+        if col not in df.columns:
+            df[col] = ""
+    if "log_date" in df.columns:
+        df["log_date"] = pd.to_datetime(df["log_date"], errors="coerce").dt.date
+    return df[list(columns)].copy()
+
+def clear_loaded_data_cache() -> None:
+    load_df.clear()
+
+def get_session_cache_key() -> str:
+    if "_sheet_data_session_key" not in st.session_state:
+        st.session_state["_sheet_data_session_key"] = str(uuid4())
+    return st.session_state["_sheet_data_session_key"]

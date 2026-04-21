@@ -6,7 +6,7 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from end_to_end_metrics import build_end_to_end_trend_df
+from hard_clue.metrics import build_end_to_end_trend_df
 
 
 def assert_close(actual: float, expected: float, label: str) -> None:
